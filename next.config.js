@@ -6,12 +6,10 @@ const nextConfig = {
         protocol: 'https',
         hostname: 'res.cloudinary.com',
       },
-      {
-        protocol: 'https',
-        hostname: 'images.unsplash.com',
-      },
     ],
   },
+  // archiver 등 Node.js 전용 패키지가 서버 번들에 포함되도록 설정
+  serverExternalPackages: ['cloudinary', 'archiver'],
 }
 
 module.exports = nextConfig
