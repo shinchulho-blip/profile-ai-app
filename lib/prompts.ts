@@ -142,10 +142,11 @@ export function getPromptStrength(strength: RetouchStrength): number {
 }
 
 // ── 크롭 비율 → width/height ───────────────────────────────
+// SDXL GPU 메모리 제한: 768px 이하 권장 (1024px → CUDA OOM 발생)
 export function getCropDimensions(ratio: RetouchOptions['cropRatio']): { width: number; height: number } {
   return {
-    '1:1': { width: 1024, height: 1024 },
-    '4:5': { width: 819, height: 1024 },
-    '2:3': { width: 683, height: 1024 },
+    '1:1': { width: 768, height: 768 },
+    '4:5': { width: 640, height: 800 },
+    '2:3': { width: 512, height: 768 },
   }[ratio];
 }

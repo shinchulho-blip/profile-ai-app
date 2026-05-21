@@ -67,12 +67,11 @@ export async function POST(req: NextRequest) {
           prompt,
           negative_prompt:     negativePrompt,
           prompt_strength:     promptStrength,
-          num_inference_steps: 40,
+          num_inference_steps: 25,        // 40→25: GPU 메모리 절약
           guidance_scale:      7.5,
           width,
           height,
-          refine:              'expert_ensemble_refiner',
-          high_noise_frac:     0.8,
+          refine:              'no_refiner', // expert_ensemble_refiner → OOM
           scheduler:           'K_EULER',
         },
       }
