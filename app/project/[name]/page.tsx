@@ -4,19 +4,21 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Download, Trash2, Sparkles, Loader2, RefreshCw,
-  ImageIcon, CheckCircle2, AlertTriangle, Settings
+  ImageIcon, CheckCircle2, AlertTriangle, Settings,
+  CheckSquare, Square, X
 } from "lucide-react";
 import Header from "@/components/Header";
 import UploadZone from "@/components/UploadZone";
 import PhotoCard from "@/components/PhotoCard";
+import PhotoLightbox from "@/components/PhotoLightbox";
 import type { Photo } from "@/types";
 
 const STYLE_OPTIONS = [
   { id: "professional", label: "전문적으로" },
-  { id: "natural", label: "자연스럽게" },
-  { id: "bright", label: "밝고 화사하게" },
-  { id: "studio", label: "스튜디오 느낌" },
-  { id: "luxury", label: "고급스럽게" },
+  { id: "natural",      label: "자연스럽게" },
+  { id: "bright",       label: "밝고 화사하게" },
+  { id: "studio",       label: "스튜디오 느낌" },
+  { id: "luxury",       label: "고급스럽게" },
 ];
 
 export default function ProjectPage() {
@@ -29,20 +31,32 @@ export default function ProjectPage() {
   const [style, setStyle] = useState("professional");
   const [enhancingAll, setEnhancingAll] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
+  const [deletingSelected, setDeletingSelected] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
 
+  // 선택 삭제 상태
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // 라이트박스
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
   const totalCount = photos.length;
   const enhancedCount = photos.filter((p) => p.enhancedUrl).length;
   const pendingCount = totalCount - enhancedCount;
+  const selectedCount = selectedIds.size;
 
   const fetchPhotos = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/projects/${encodeURIComponent(projectName)}/photos`);
       const data = await res.json();
-      if (data.success) setPhotos(data.data ?? []);
+      if (data.success) {
+        setPhotos(data.data ?? []);
+        // 사진 목록이 새로고침되면 선택 초기화
+        setSelectedIds(new Set());
+      }
     } catch {
       setStatusMsg("사진 목록을 불러오지 못했습니다.");
     } finally {
@@ -50,11 +64,62 @@ export default function ProjectPage() {
     }
   }, [projectName]);
 
-  useEffect(() => {
-    fetchPhotos();
-  }, [fetchPhotos]);
+  useEffect(() => { fetchPhotos(); }, [fetchPhotos]);
 
-  // ── 전체 보정 ──────────────────────────────────────────────
+  // ── 체크박스 선택 ─────────────────────────────────────────
+  const toggleSelect = (publicId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(publicId)) next.delete(publicId);
+      else next.add(publicId);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === totalCount) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(photos.map((p) => p.publicId)));
+    }
+  };
+
+  // ── 선택 삭제 ────────────────────────────────────────────
+  const handleDeleteSelected = async () => {
+    if (selectedCount === 0) return;
+    if (!confirm(`선택한 ${selectedCount}장을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
+
+    setDeletingSelected(true);
+    try {
+      // 원본 public_id + 대응 enhanced public_id 수집
+      const toDelete: string[] = [];
+      for (const id of selectedIds) {
+        toDelete.push(id);
+        const photo = photos.find((p) => p.publicId === id);
+        if (photo?.enhancedPublicId) toDelete.push(photo.enhancedPublicId);
+      }
+
+      const res = await fetch("/api/photos", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ publicIds: toDelete }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatusMsg(`✓ ${selectedCount}장이 삭제되었습니다.`);
+        setTimeout(() => setStatusMsg(null), 3000);
+        await fetchPhotos();
+      } else {
+        setStatusMsg(data.error ?? "삭제 실패");
+      }
+    } catch {
+      setStatusMsg("삭제 중 오류가 발생했습니다.");
+    } finally {
+      setDeletingSelected(false);
+    }
+  };
+
+  // ── 전체 보정 ─────────────────────────────────────────────
   const handleEnhanceAll = async () => {
     const toEnhance = photos.filter((p) => !p.enhancedUrl);
     if (toEnhance.length === 0) return;
@@ -62,41 +127,32 @@ export default function ProjectPage() {
     setStatusMsg(`0 / ${toEnhance.length}장 보정 중...`);
 
     let done = 0;
-    // 2장씩 병렬
     for (let i = 0; i < toEnhance.length; i += 2) {
       const batch = toEnhance.slice(i, i + 2);
-      await Promise.all(
-        batch.map(async (photo) => {
-          try {
-            await fetch("/api/enhance", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                publicId: photo.publicId,
-                projectName,
-                style,
-                filename: photo.filename,
-              }),
-            });
-          } catch { /* 개별 실패 무시, 계속 진행 */ }
-          done++;
-          setStatusMsg(`${done} / ${toEnhance.length}장 보정 완료...`);
-        })
-      );
+      await Promise.all(batch.map(async (photo) => {
+        try {
+          await fetch("/api/enhance", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ publicId: photo.publicId, projectName, style, filename: photo.filename }),
+          });
+        } catch { /* 개별 실패 무시 */ }
+        done++;
+        setStatusMsg(`${done} / ${toEnhance.length}장 보정 완료...`);
+      }));
     }
 
     await fetchPhotos();
     setEnhancingAll(false);
-    setStatusMsg(`✓ ${done}장 보정이 완료되었습니다.`);
-    setTimeout(() => setStatusMsg(null), 4000);
+    setStatusMsg(`✓ ${done}장 보정 완료! 각 사진 카드에서 적용 내용을 확인하세요.`);
+    setTimeout(() => setStatusMsg(null), 5000);
   };
 
-  // ── 다운로드 ───────────────────────────────────────────────
+  // ── 다운로드 ─────────────────────────────────────────────
   const handleDownload = async (type: "all" | "originals" | "enhanced") => {
     setDownloading(type);
     try {
-      const url = `/api/projects/${encodeURIComponent(projectName)}/download?type=${type}`;
-      const res = await fetch(url);
+      const res = await fetch(`/api/projects/${encodeURIComponent(projectName)}/download?type=${type}`);
       if (!res.ok) throw new Error("다운로드 실패");
       const blob = await res.blob();
       const link = document.createElement("a");
@@ -111,18 +167,15 @@ export default function ProjectPage() {
     }
   };
 
-  // ── 프로젝트 삭제 ──────────────────────────────────────────
+  // ── 프로젝트 전체 삭제 ───────────────────────────────────
   const handleDeleteProject = async () => {
     if (!confirm(`"${projectName}" 프로젝트의 모든 사진을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
     setDeletingProject(true);
     try {
       const res = await fetch(`/api/projects/${encodeURIComponent(projectName)}`, { method: "DELETE" });
       const data = await res.json();
-      if (data.success) {
-        router.push("/");
-      } else {
-        setStatusMsg(data.error ?? "삭제 실패");
-      }
+      if (data.success) router.push("/");
+      else setStatusMsg(data.error ?? "삭제 실패");
     } catch {
       setStatusMsg("삭제 중 오류가 발생했습니다.");
     } finally {
@@ -134,6 +187,15 @@ export default function ProjectPage() {
     <>
       <Header projectName={params.name as string} />
 
+      {/* 라이트박스 */}
+      {lightboxIndex !== null && (
+        <PhotoLightbox
+          photos={photos}
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+        />
+      )}
+
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
         {/* ── 프로젝트 헤더 ──────────────────────────────── */}
@@ -143,16 +205,10 @@ export default function ProjectPage() {
               <h1 className="text-xl font-extrabold text-gray-900">{projectName}</h1>
               <p className="text-sm text-gray-500 mt-0.5">
                 총 {totalCount}장
-                {enhancedCount > 0 && (
-                  <span className="text-violet-600 ml-2">· 보정완료 {enhancedCount}장</span>
-                )}
-                {pendingCount > 0 && (
-                  <span className="text-amber-600 ml-2">· 미보정 {pendingCount}장</span>
-                )}
+                {enhancedCount > 0 && <span className="text-violet-600 ml-2">· 보정완료 {enhancedCount}장</span>}
+                {pendingCount > 0 && <span className="text-amber-600 ml-2">· 미보정 {pendingCount}장</span>}
               </p>
             </div>
-
-            {/* 진행 바 */}
             {totalCount > 0 && (
               <div className="w-full sm:w-48">
                 <div className="flex justify-between text-xs text-gray-500 mb-1">
@@ -162,39 +218,57 @@ export default function ProjectPage() {
                 <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${(enhancedCount / totalCount) * 100}%`,
-                      background: "linear-gradient(90deg, #7c3aed, #a855f7)",
-                    }}
+                    style={{ width: `${(enhancedCount / totalCount) * 100}%`, background: "linear-gradient(90deg, #7c3aed, #a855f7)" }}
                   />
                 </div>
               </div>
             )}
           </div>
-
-          {/* 상태 메시지 */}
           {statusMsg && (
             <div className="mt-3 p-3 rounded-lg bg-violet-50 border border-violet-100 text-sm text-violet-700 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 flex-shrink-0" />
-              {statusMsg}
+              <Sparkles className="w-4 h-4 flex-shrink-0" />{statusMsg}
             </div>
           )}
         </div>
 
+        {/* ── 선택 삭제 바 (선택 시에만 표시) ──────────────── */}
+        {selectedCount > 0 && (
+          <div className="bg-violet-50 border border-violet-200 rounded-2xl p-4 flex items-center justify-between gap-4 shadow-sm">
+            <div className="flex items-center gap-3">
+              <CheckSquare className="w-5 h-5 text-violet-600" />
+              <span className="text-sm font-bold text-violet-800">{selectedCount}장 선택됨</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-violet-600 hover:bg-violet-100 transition-colors"
+              >
+                <X className="w-4 h-4" /> 선택 해제
+              </button>
+              <button
+                id="delete-selected-btn"
+                onClick={handleDeleteSelected}
+                disabled={deletingSelected}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-white bg-red-500 hover:bg-red-600 transition-colors disabled:opacity-50"
+              >
+                {deletingSelected ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                선택 삭제 ({selectedCount}장)
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── 일괄 작업 컨트롤 ─────────────────────────── */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
           <div className="flex flex-wrap items-center gap-3">
-
-            {/* 보정 스타일 */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowSettings(!showSettings)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
-              >
-                <Settings className="w-4 h-4" />
-                {STYLE_OPTIONS.find(s => s.id === style)?.label}
-              </button>
-            </div>
+            {/* 스타일 */}
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
+            >
+              <Settings className="w-4 h-4" />
+              {STYLE_OPTIONS.find(s => s.id === style)?.label}
+            </button>
 
             {/* 전체 보정 */}
             <button
@@ -204,17 +278,12 @@ export default function ProjectPage() {
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)" }}
             >
-              {enhancingAll ? (
-                <><Loader2 className="w-4 h-4 animate-spin" />보정 중...</>
-              ) : (
-                <><Sparkles className="w-4 h-4" />전체 보정 ({pendingCount}장)</>
-              )}
+              {enhancingAll ? <><Loader2 className="w-4 h-4 animate-spin" />보정 중...</> : <><Sparkles className="w-4 h-4" />전체 보정 ({pendingCount}장)</>}
             </button>
 
-            {/* 구분선 */}
             <div className="h-6 w-px bg-gray-200 hidden sm:block" />
 
-            {/* 다운로드 버튼들 */}
+            {/* 다운로드 */}
             <button
               id="download-enhanced-btn"
               onClick={() => handleDownload("enhanced")}
@@ -224,7 +293,6 @@ export default function ProjectPage() {
               {downloading === "enhanced" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               보정본 다운로드
             </button>
-
             <button
               id="download-all-btn"
               onClick={() => handleDownload("all")}
@@ -235,15 +303,20 @@ export default function ProjectPage() {
               전체 다운로드
             </button>
 
-            {/* 구분선 */}
-            <div className="h-6 w-px bg-gray-200 hidden sm:block ml-auto" />
+            <div className="h-6 w-px bg-gray-200 hidden sm:block" />
 
-            {/* 새로고침 */}
-            <button
-              onClick={fetchPhotos}
-              disabled={loading}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-100 transition-colors"
-            >
+            {/* 전체 선택 토글 */}
+            {totalCount > 0 && (
+              <button
+                onClick={toggleSelectAll}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
+              >
+                {selectedIds.size === totalCount ? <CheckSquare className="w-4 h-4 text-violet-600" /> : <Square className="w-4 h-4" />}
+                전체 선택
+              </button>
+            )}
+
+            <button onClick={fetchPhotos} disabled={loading} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-100 transition-colors">
               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
             </button>
 
@@ -255,23 +328,21 @@ export default function ProjectPage() {
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-red-600 bg-red-50 border border-red-100 hover:bg-red-100 transition-colors disabled:opacity-50"
             >
               {deletingProject ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-              삭제
+              전체 삭제
             </button>
           </div>
 
-          {/* 스타일 선택 (토글) */}
+          {/* 스타일 선택 */}
           {showSettings && (
             <div className="mt-4 pt-4 border-t border-gray-100">
-              <p className="text-xs font-bold text-gray-500 mb-2">보정 스타일 선택</p>
+              <p className="text-xs font-bold text-gray-500 mb-2">보정 스타일</p>
               <div className="flex flex-wrap gap-2">
                 {STYLE_OPTIONS.map((s) => (
                   <button
                     key={s.id}
                     onClick={() => setStyle(s.id)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
-                      style === s.id
-                        ? "bg-violet-600 text-white border-violet-600"
-                        : "bg-white text-gray-600 border-gray-200 hover:border-violet-300"
+                      style === s.id ? "bg-violet-600 text-white border-violet-600" : "bg-white text-gray-600 border-gray-200 hover:border-violet-300"
                     }`}
                   >
                     {s.label}
@@ -283,25 +354,22 @@ export default function ProjectPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
-          {/* ── 업로드 영역 ─────────────────────────────── */}
+          {/* ── 업로드 ──────────────────────────────────── */}
           <div>
             <UploadZone projectName={projectName} onUploadComplete={fetchPhotos} />
           </div>
 
-          {/* ── 사진 갤러리 ─────────────────────────────── */}
+          {/* ── 갤러리 ──────────────────────────────────── */}
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
                 <ImageIcon className="w-4 h-4 text-violet-600" />
                 사진 갤러리
-                {totalCount > 0 && (
-                  <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">{totalCount}</span>
-                )}
+                {totalCount > 0 && <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">{totalCount}</span>}
               </h3>
               {enhancedCount === totalCount && totalCount > 0 && (
                 <span className="flex items-center gap-1 text-xs text-emerald-600 font-semibold">
-                  <CheckCircle2 className="w-4 h-4" />
-                  전체 보정 완료
+                  <CheckCircle2 className="w-4 h-4" />전체 보정 완료
                 </span>
               )}
             </div>
@@ -320,13 +388,16 @@ export default function ProjectPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
-                  {photos.map((photo) => (
+                  {photos.map((photo, idx) => (
                     <PhotoCard
                       key={photo.publicId}
                       photo={photo}
                       projectName={projectName}
                       style={style}
+                      selected={selectedIds.has(photo.publicId)}
+                      onToggleSelect={() => toggleSelect(photo.publicId)}
                       onEnhanced={fetchPhotos}
+                      onClickPhoto={() => setLightboxIndex(idx)}
                     />
                   ))}
                 </div>
@@ -335,14 +406,10 @@ export default function ProjectPage() {
           </div>
         </div>
 
-        {/* ── 주의 안내 ─────────────────────────────────── */}
         {totalCount > 50 && (
           <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-100 rounded-xl text-sm text-amber-700">
             <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-            <p>
-              사진이 {totalCount}장으로 용량이 많습니다.
-              다운로드 후 <strong>프로젝트 삭제</strong>를 통해 저장 공간을 확보하세요.
-            </p>
+            <p>사진이 {totalCount}장입니다. 다운로드 후 <strong>전체 삭제</strong>로 저장 공간을 확보하세요.</p>
           </div>
         )}
       </main>
