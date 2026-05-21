@@ -3,35 +3,28 @@ import cloudinary, { getEnhancedFolder } from '@/lib/cloudinary';
 
 export const runtime = 'nodejs';
 
-// POST /api/enhance — Cloudinary 자동 보정 후 enhanced 폴더에 저장
-// 실제 AI 대신 Cloudinary 내장 보정 필터 사용 (e_improve, e_brightface)
-// 향후 Replicate/Photoroom 등 실제 AI로 교체 가능
-
+// 스타일별 Cloudinary 유효 변환 (e_ 접두사 없이 SDK 형식으로 작성)
 const STYLE_TRANSFORMATIONS: Record<string, object[]> = {
   natural: [
-    { effect: 'improve:outdoor:30' },
-    { effect: 'brightface' },
+    { effect: 'improve:50' },
+    { effect: 'auto_color' },
   ],
   professional: [
-    { effect: 'improve:indoor:50' },
-    { effect: 'brightface' },
-    { effect: 'sharpen:60' },
+    { effect: 'improve:60' },
+    { effect: 'sharpen:50' },
   ],
   bright: [
-    { effect: 'improve:50' },
-    { effect: 'brightface' },
-    { effect: 'saturation:20' },
+    { effect: 'improve:70' },
     { effect: 'brightness:15' },
+    { effect: 'saturation:20' },
   ],
   studio: [
-    { effect: 'improve:indoor:60' },
-    { effect: 'brightface' },
+    { effect: 'improve:80' },
     { effect: 'sharpen:80' },
-    { effect: 'contrast:10' },
+    { effect: 'contrast:15' },
   ],
   luxury: [
-    { effect: 'improve:50' },
-    { effect: 'brightface' },
+    { effect: 'improve:60' },
     { effect: 'vibrance:30' },
     { effect: 'sharpen:50' },
   ],
@@ -39,29 +32,38 @@ const STYLE_TRANSFORMATIONS: Record<string, object[]> = {
 
 export async function POST(req: NextRequest) {
   try {
-    const { publicId, projectName, style = 'professional', filename } = await req.json();
+    const body = await req.json();
+    const { publicId, projectName, style = 'professional', filename } = body;
 
     if (!publicId || !projectName) {
-      return NextResponse.json({ success: false, error: 'publicId와 projectName이 필요합니다.' }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: 'publicId와 projectName이 필요합니다.' },
+        { status: 400 }
+      );
+    }
+
+    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    if (!cloudName) {
+      return NextResponse.json(
+        { success: false, error: 'Cloudinary 설정이 누락되었습니다.' },
+        { status: 500 }
+      );
     }
 
     const transformations = STYLE_TRANSFORMATIONS[style] ?? STYLE_TRANSFORMATIONS.professional;
     const enhancedFolder = getEnhancedFolder(projectName);
+    const baseName = (filename ?? publicId.split('/').pop() ?? 'photo').replace(/\.[^.]+$/, '');
 
-    // 원본 Cloudinary URL에 변환 적용 후 enhanced 폴더에 새 파일로 업로드
-    const originalUrl = cloudinary.url(publicId, {
-      secure: true,
-      transformation: transformations,
-      fetch_format: 'auto',
-    });
+    // 원본 이미지의 plain URL (변환 없음)
+    const originalUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
 
-    // 변환된 이미지를 enhanced 폴더에 저장
-    const baseName = filename?.replace(/\.[^.]+$/, '') ?? publicId.split('/').pop();
+    // 원본을 가져와서 변환 적용 후 enhanced 폴더에 저장
     const result = await cloudinary.uploader.upload(originalUrl, {
       folder: enhancedFolder,
       public_id: baseName,
       overwrite: true,
       resource_type: 'image',
+      transformation: transformations,
     });
 
     return NextResponse.json({
@@ -74,8 +76,12 @@ export async function POST(req: NextRequest) {
         bytes: result.bytes,
       },
     });
-  } catch (error) {
-    console.error('[POST /api/enhance]', error);
-    return NextResponse.json({ success: false, error: '보정 처리 중 오류가 발생했습니다.' }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[POST /api/enhance] error:', message);
+    return NextResponse.json(
+      { success: false, error: `보정 처리 실패: ${message}` },
+      { status: 500 }
+    );
   }
 }
