@@ -130,7 +130,13 @@ export function buildNegativePrompt(options: RetouchOptions): string {
   ].filter(Boolean).join(' ');
 }
 
-// ── 강도별 prompt_strength (Replicate 파라미터) ───────────
+// ── instruct-pix2pix: image_guidance_scale ────────────────
+// 높을수록 원본을 더 보존 (1.0=프롬프트 중심, 2.5=원본 중심)
+export function getImageGuidanceScale(strength: RetouchStrength): number {
+  return { natural: 2.0, standard: 1.5, polished: 1.1 }[strength];
+}
+
+// ── (하위 호환) prompt_strength — 더 이상 사용 안 함 ────────
 export function getPromptStrength(strength: RetouchStrength): number {
   return { natural: 0.35, standard: 0.50, polished: 0.65 }[strength];
 }

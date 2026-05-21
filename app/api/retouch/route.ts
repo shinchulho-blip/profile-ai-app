@@ -4,20 +4,17 @@ import cloudinary, { getEnhancedFolder } from '@/lib/cloudinary';
 import {
   buildPositivePrompt,
   buildNegativePrompt,
-  getPromptStrength,
-  getCropDimensions,
+  getImageGuidanceScale,
   type RetouchOptions,
 } from '@/lib/prompts';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60; // Vercel Hobby 최대 60초
+export const maxDuration = 60;
 
-// Replicate SDXL img2img 모델
-// 사실적인 인물 사진 보정에 최적화된 안정적 모델
-const MODEL_VERSION = 'stability-ai/sdxl:39ed52f2319f9bf9f13d29a46dc57f9d';
+// instruct-pix2pix: 텍스트 지시어로 이미지를 편집하는 모델
+// 버전 없이 모델명만 사용 → Replicate가 최신 버전 자동 선택
+const MODEL = 'timothybrooks/instruct-pix2pix';
 
-// POST /api/retouch — AI 보정 실행
-// 예상 처리 시간: natural 15~25s / standard 20~35s / polished 25~45s
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as {
@@ -38,45 +35,46 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: '서버 환경변수가 누락되었습니다.' }, { status: 500 });
     }
 
-    // ── 1. 원본 이미지 URL 구성 ─────────────────────────────
+    // ── 1. 원본 이미지 URL ───────────────────────────────────
     const originalUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
 
     // ── 2. 프롬프트 조립 ─────────────────────────────────────
-    const prompt         = buildPositivePrompt(options);
-    const negativePrompt = buildNegativePrompt(options);
-    const promptStrength = getPromptStrength(options.strength);
-    const { width, height } = getCropDimensions(options.cropRatio);
+    const prompt            = buildPositivePrompt(options);
+    const negativePrompt    = buildNegativePrompt(options);
+    // instruct-pix2pix의 image_guidance_scale:
+    //   높을수록 원본을 더 보존 (natural=2.0, standard=1.5, polished=1.1)
+    const imageGuidanceScale = getImageGuidanceScale(options.strength);
 
     // ── 3. Replicate 호출 ─────────────────────────────────────
     const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 
-    const output = await replicate.run(MODEL_VERSION, {
+    // Replicate API로 예측 생성 (버전은 API가 자동 해결)
+    const prediction = await replicate.predictions.create({
+      model: MODEL,
       input: {
-        image: originalUrl,
+        image:               originalUrl,
         prompt,
-        negative_prompt: negativePrompt,
-        prompt_strength: promptStrength,
-        num_inference_steps: 40,
-        guidance_scale: 7.5,
-        width,
-        height,
-        refine: 'expert_ensemble_refiner',
-        high_noise_frac: 0.8,
-        scheduler: 'K_EULER',
+        negative_prompt:     negativePrompt,
+        num_inference_steps: 100,
+        image_guidance_scale: imageGuidanceScale,
+        guidance_scale:      7.5,
       },
-    }) as string[];
+    });
 
-    if (!output || output.length === 0) {
-      return NextResponse.json({ success: false, error: 'AI 보정 결과가 없습니다.' }, { status: 500 });
+    // 완료까지 폴링 (최대 55초)
+    const result = await replicate.wait(prediction, { interval: 3000 });
+
+    if (result.status === 'failed' || !result.output) {
+      throw new Error(result.error ? String(result.error) : 'AI 처리 실패');
     }
 
-    const retouchedUrl = Array.isArray(output) ? output[0] : output;
+    const outputUrl = Array.isArray(result.output) ? result.output[0] : result.output;
 
     // ── 4. 결과를 Cloudinary enhanced 폴더에 저장 ───────────
     const enhancedFolder = getEnhancedFolder(projectName);
     const baseName = (filename ?? publicId.split('/').pop() ?? 'photo').replace(/\.[^.]+$/, '');
 
-    const uploaded = await cloudinary.uploader.upload(retouchedUrl as string, {
+    const uploaded = await cloudinary.uploader.upload(outputUrl as string, {
       folder: enhancedFolder,
       public_id: baseName,
       overwrite: true,
@@ -86,11 +84,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        publicId:  uploaded.public_id,
-        url:       uploaded.secure_url,
-        width:     uploaded.width,
-        height:    uploaded.height,
-        bytes:     uploaded.bytes,
+        publicId:       uploaded.public_id,
+        url:            uploaded.secure_url,
+        width:          uploaded.width,
+        height:         uploaded.height,
+        bytes:          uploaded.bytes,
         appliedOptions: options,
       },
     });
