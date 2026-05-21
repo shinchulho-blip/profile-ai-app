@@ -170,7 +170,7 @@ export default function UploadZone({ projectName, onUploadComplete }: UploadZone
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
                 )}
                 {uf.status === "error" && (
-                  <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" title={uf.error} />
+                  <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
                 )}
                 {uf.status === "pending" && (
                   <button onClick={() => removeFile(i)} className="text-gray-300 hover:text-red-400 flex-shrink-0">
