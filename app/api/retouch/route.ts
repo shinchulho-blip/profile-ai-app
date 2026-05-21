@@ -12,9 +12,6 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-// stability-ai/sdxl — 버전 해시 없이 최신 버전 자동 사용
-const MODEL = 'stability-ai/sdxl' as const;
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as {
@@ -44,30 +41,42 @@ export async function POST(req: NextRequest) {
     // ── 1. 원본 이미지 URL ───────────────────────────────────
     const originalUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
 
-    // ── 2. 프롬프트 & 크기 조립 ──────────────────────────────
+    // ── 2. 프롬프트 & 크기 ───────────────────────────────────
     const prompt         = buildPositivePrompt(options);
     const negativePrompt = buildNegativePrompt(options);
     const promptStrength = getPromptStrength(options.strength);
     const { width, height } = getCropDimensions(options.cropRatio);
 
-    // ── 3. Replicate 호출 ─────────────────────────────────────
+    // ── 3. Replicate: 최신 버전 동적 조회 후 실행 ───────────
     const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 
-    const output = await replicate.run(MODEL, {
-      input: {
-        image:               originalUrl,
-        prompt,
-        negative_prompt:     negativePrompt,
-        prompt_strength:     promptStrength,
-        num_inference_steps: 40,
-        guidance_scale:      7.5,
-        width,
-        height,
-        refine:              'expert_ensemble_refiner',
-        high_noise_frac:     0.8,
-        scheduler:           'K_EULER',
-      },
-    }) as string[];
+    // stability-ai/sdxl 은 버전 해시 없이 호출하면 404 발생
+    // → models.get() 으로 최신 버전 ID를 동적으로 가져온다
+    const modelInfo = await replicate.models.get('stability-ai', 'sdxl');
+    const versionId = modelInfo.latest_version?.id;
+
+    if (!versionId) {
+      throw new Error('SDXL 모델 버전 정보를 가져올 수 없습니다.');
+    }
+
+    const output = await replicate.run(
+      `stability-ai/sdxl:${versionId}`,
+      {
+        input: {
+          image:               originalUrl,
+          prompt,
+          negative_prompt:     negativePrompt,
+          prompt_strength:     promptStrength,
+          num_inference_steps: 40,
+          guidance_scale:      7.5,
+          width,
+          height,
+          refine:              'expert_ensemble_refiner',
+          high_noise_frac:     0.8,
+          scheduler:           'K_EULER',
+        },
+      }
+    ) as string[];
 
     if (!output || output.length === 0) {
       throw new Error('AI 처리 결과가 비어 있습니다.');
@@ -75,7 +84,7 @@ export async function POST(req: NextRequest) {
 
     const retouchedUrl = output[0];
 
-    // ── 4. 결과를 Cloudinary enhanced 폴더에 저장 ───────────
+    // ── 4. Cloudinary enhanced 폴더에 저장 ──────────────────
     const enhancedFolder = getEnhancedFolder(projectName);
     const baseName = (filename ?? publicId.split('/').pop() ?? 'photo')
       .replace(/\.[^.]+$/, '');
