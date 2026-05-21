@@ -32,12 +32,13 @@ export default function PhotoCard({
   const formatBytes = (b: number) =>
     b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)}MB` : `${(b / 1024).toFixed(0)}KB`;
 
-  // ── AI 보정 실행 ─────────────────────────────────────────
+  // ── AI 보정 실행 (비동기 폴링 방식 — Vercel 60초 제한 우회) ──
   const handleRetouch = async () => {
     setProcessing(true);
     setError(null);
     try {
-      const res = await fetch("/api/retouch", {
+      // 1단계: 예측 시작 (즉시 반환)
+      const startRes = await fetch("/api/retouch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -47,19 +48,46 @@ export default function PhotoCard({
           options,
         }),
       });
+      const startText = await startRes.text();
+      let startData: { success: boolean; predictionId?: string; error?: string };
+      try { startData = JSON.parse(startText); }
+      catch { throw new Error(`서버 오류 (${startRes.status}): 잠시 후 다시 시도해 주세요.`); }
+      if (!startData.success) throw new Error(startData.error ?? '보정 시작 실패');
 
-      // 응답이 JSON이 아닐 수 있으므로 안전하게 파싱
-      let data: { success: boolean; data?: { url: string }; error?: string };
-      const text = await res.text();
-      try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error(res.ok ? '서버 응답 오류' : `서버 오류 (${res.status}): 잠시 후 다시 시도해 주세요.`);
+      const predictionId = startData.predictionId!;
+      const params = new URLSearchParams({
+        id: predictionId,
+        publicId: photo.publicId,
+        projectName,
+        filename: photo.filename,
+      });
+
+      // 2단계: 3초마다 상태 폴링 (최대 90초)
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+
+        const statusRes = await fetch(`/api/retouch/status?${params}`);
+        const statusText = await statusRes.text();
+        let statusData: {
+          success: boolean;
+          status?: string;
+          data?: { url: string };
+          error?: string;
+        };
+        try { statusData = JSON.parse(statusText); }
+        catch { throw new Error("상태 확인 중 오류가 발생했습니다."); }
+
+        if (!statusData.success) throw new Error(statusData.error ?? "AI 처리 실패");
+
+        if (statusData.status === "succeeded") {
+          setResultUrl(statusData.data!.url);
+          onEnhanced();
+          return;
+        }
+        // starting / processing → 계속 폴링
       }
+      throw new Error("처리 시간이 초과되었습니다. 다시 시도해 주세요.");
 
-      if (!data.success) throw new Error(data.error ?? '알 수 없는 오류');
-      setResultUrl(data.data!.url);
-      onEnhanced();
     } catch (err) {
       setError((err as Error).message);
     } finally {
