@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Download, Trash2, Sparkles, Loader2, RefreshCw,
-  ImageIcon, CheckCircle2, AlertTriangle, Settings,
+  ImageIcon, CheckCircle2, AlertTriangle,
   CheckSquare, Square, X
 } from "lucide-react";
 import Header from "@/components/Header";
@@ -12,14 +12,7 @@ import UploadZone from "@/components/UploadZone";
 import PhotoCard from "@/components/PhotoCard";
 import PhotoLightbox from "@/components/PhotoLightbox";
 import type { Photo } from "@/types";
-
-const STYLE_OPTIONS = [
-  { id: "professional", label: "전문적으로" },
-  { id: "natural",      label: "자연스럽게" },
-  { id: "bright",       label: "밝고 화사하게" },
-  { id: "studio",       label: "스튜디오 느낌" },
-  { id: "luxury",       label: "고급스럽게" },
-];
+import { DEFAULT_OPTIONS } from "@/lib/prompts";
 
 export default function ProjectPage() {
   const params = useParams();
@@ -28,13 +21,11 @@ export default function ProjectPage() {
 
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [style, setStyle] = useState("professional");
   const [enhancingAll, setEnhancingAll] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
 
   // 선택 삭제 상태
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -119,34 +110,37 @@ export default function ProjectPage() {
     }
   };
 
-  // ── 전체 보정 ─────────────────────────────────────────────
+  // ── 전체 AI 보정 (1장씩 순차 처리)
   const handleEnhanceAll = async () => {
     const toEnhance = photos.filter((p) => !p.enhancedUrl);
     if (toEnhance.length === 0) return;
     setEnhancingAll(true);
-    setStatusMsg(`0 / ${toEnhance.length}장 보정 중...`);
+    setStatusMsg(`0 / ${toEnhance.length}장 AI 보정 중... (장당 20~45초 소요)`);
 
     let done = 0;
-    for (let i = 0; i < toEnhance.length; i += 2) {
-      const batch = toEnhance.slice(i, i + 2);
-      await Promise.all(batch.map(async (photo) => {
-        try {
-          await fetch("/api/enhance", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ publicId: photo.publicId, projectName, style, filename: photo.filename }),
-          });
-        } catch { /* 개별 실패 무시 */ }
-        done++;
-        setStatusMsg(`${done} / ${toEnhance.length}장 보정 완료...`);
-      }));
+    for (const photo of toEnhance) {
+      try {
+        await fetch("/api/retouch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            publicId: photo.publicId,
+            projectName,
+            filename: photo.filename,
+            options: DEFAULT_OPTIONS,
+          }),
+        });
+      } catch { /* 개별 실패 무시 */ }
+      done++;
+      setStatusMsg(`${done} / ${toEnhance.length}장 AI 보정 완료...`);
     }
 
     await fetchPhotos();
     setEnhancingAll(false);
-    setStatusMsg(`✓ ${done}장 보정 완료! 각 사진 카드에서 적용 내용을 확인하세요.`);
+    setStatusMsg(`✓ ${done}장 AI 보정 완료! 각 카드의 before/after를 확인하세요.`);
     setTimeout(() => setStatusMsg(null), 5000);
   };
+
 
   // ── 다운로드 ─────────────────────────────────────────────
   const handleDownload = async (type: "all" | "originals" | "enhanced") => {
@@ -261,16 +255,7 @@ export default function ProjectPage() {
         {/* ── 일괄 작업 컨트롤 ─────────────────────────── */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
           <div className="flex flex-wrap items-center gap-3">
-            {/* 스타일 */}
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
-            >
-              <Settings className="w-4 h-4" />
-              {STYLE_OPTIONS.find(s => s.id === style)?.label}
-            </button>
-
-            {/* 전체 보정 */}
+            {/* 전체 AI 보정 */}
             <button
               id="enhance-all-btn"
               onClick={handleEnhanceAll}
@@ -278,7 +263,7 @@ export default function ProjectPage() {
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)" }}
             >
-              {enhancingAll ? <><Loader2 className="w-4 h-4 animate-spin" />보정 중...</> : <><Sparkles className="w-4 h-4" />전체 보정 ({pendingCount}장)</>}
+              {enhancingAll ? <><Loader2 className="w-4 h-4 animate-spin" />AI 보정 중...</> : <><Sparkles className="w-4 h-4" />AI 전체 보정 ({pendingCount}장)</>}
             </button>
 
             <div className="h-6 w-px bg-gray-200 hidden sm:block" />
@@ -331,27 +316,8 @@ export default function ProjectPage() {
               전체 삭제
             </button>
           </div>
-
-          {/* 스타일 선택 */}
-          {showSettings && (
-            <div className="mt-4 pt-4 border-t border-gray-100">
-              <p className="text-xs font-bold text-gray-500 mb-2">보정 스타일</p>
-              <div className="flex flex-wrap gap-2">
-                {STYLE_OPTIONS.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => setStyle(s.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
-                      style === s.id ? "bg-violet-600 text-white border-violet-600" : "bg-white text-gray-600 border-gray-200 hover:border-violet-300"
-                    }`}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
+
 
         <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
           {/* ── 업로드 ──────────────────────────────────── */}
@@ -393,7 +359,6 @@ export default function ProjectPage() {
                       key={photo.publicId}
                       photo={photo}
                       projectName={projectName}
-                      style={style}
                       selected={selectedIds.has(photo.publicId)}
                       onToggleSelect={() => toggleSelect(photo.publicId)}
                       onEnhanced={fetchPhotos}

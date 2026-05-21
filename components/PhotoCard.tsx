@@ -1,22 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles, CheckCircle2, Loader2, AlertCircle, Eye, CheckSquare, Square } from "lucide-react";
+import {
+  Sparkles, CheckCircle2, Loader2, AlertCircle,
+  Eye, CheckSquare, Square, X, Download, RefreshCw
+} from "lucide-react";
 import type { Photo } from "@/types";
-
-// 스타일별 보정 설명 (사용자에게 보여줄 내용)
-const STYLE_LABELS: Record<string, string[]> = {
-  professional: ["자동 밝기·선명도 보정", "얼굴 선명도 강화"],
-  natural:      ["피부톤 자연 보정", "색상 자동 균형"],
-  bright:       ["밝기 +15 향상", "채도 +20 증가", "자동 보정"],
-  studio:       ["대비 +15 강화", "선명도 최대화", "자동 보정"],
-  luxury:       ["생동감 +30 향상", "선명도 강화", "자동 보정"],
-};
+import { DEFAULT_OPTIONS, type RetouchOptions } from "@/lib/prompts";
+import RetouchOptionsPanel from "@/components/RetouchOptions";
+import BeforeAfterSlider from "@/components/BeforeAfterSlider";
 
 interface PhotoCardProps {
   photo: Photo;
   projectName: string;
-  style: string;
   selected: boolean;
   onToggleSelect: () => void;
   onEnhanced: () => void;
@@ -24,159 +20,233 @@ interface PhotoCardProps {
 }
 
 export default function PhotoCard({
-  photo,
-  projectName,
-  style,
-  selected,
-  onToggleSelect,
-  onEnhanced,
-  onClickPhoto,
+  photo, projectName, selected, onToggleSelect, onEnhanced, onClickPhoto,
 }: PhotoCardProps) {
-  const [enhancing, setEnhancing] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [options, setOptions] = useState<RetouchOptions>(DEFAULT_OPTIONS);
+  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [appliedStyle, setAppliedStyle] = useState<string | null>(
-    photo.enhancedUrl ? "professional" : null
-  );
+  const [resultUrl, setResultUrl] = useState<string | null>(photo.enhancedUrl ?? null);
 
-  const isEnhanced = !!photo.enhancedUrl;
+  const isEnhanced = !!resultUrl;
+  const formatBytes = (b: number) =>
+    b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)}MB` : `${(b / 1024).toFixed(0)}KB`;
 
-  const handleEnhance = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEnhancing(true);
+  // ── AI 보정 실행 ─────────────────────────────────────────
+  const handleRetouch = async () => {
+    setProcessing(true);
     setError(null);
     try {
-      const res = await fetch("/api/enhance", {
+      const res = await fetch("/api/retouch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           publicId: photo.publicId,
           projectName,
-          style,
           filename: photo.filename,
+          options,
         }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
-      setAppliedStyle(style);
+      setResultUrl(data.data.url);
       onEnhanced();
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setEnhancing(false);
+      setProcessing(false);
     }
   };
 
-  const formatBytes = (b: number) =>
-    b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)}MB` : `${(b / 1024).toFixed(0)}KB`;
-
-  const enhancementItems = appliedStyle ? STYLE_LABELS[appliedStyle] ?? [] : [];
+  // ── 개별 다운로드 ────────────────────────────────────────
+  const handleDownload = async (url: string, suffix: string) => {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${photo.filename.replace(/\.[^.]+$/, "")}_${suffix}`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
 
   return (
-    <div
-      className={`bg-white rounded-xl border shadow-sm overflow-hidden group transition-all duration-200 ${
+    <>
+      {/* ── 카드 ────────────────────────────────────────── */}
+      <div className={`bg-white rounded-xl border shadow-sm overflow-hidden group transition-all duration-200 ${
         selected ? "border-violet-400 ring-2 ring-violet-300" : "border-gray-100 hover:border-violet-200"
-      }`}
-    >
-      {/* 사진 영역 */}
-      <div className="relative aspect-[3/4] bg-gray-100 overflow-hidden cursor-pointer" onClick={onClickPhoto}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={photo.url}
-          alt={photo.filename}
-          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-        />
-
-        {/* 호버 오버레이 */}
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-200 flex items-center justify-center">
-          <Eye className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-200 drop-shadow-lg" />
-        </div>
-
-        {/* 체크박스 */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
-          className="absolute top-2 left-2 z-10 transition-all"
-          title={selected ? "선택 해제" : "선택"}
-        >
-          {selected ? (
-            <CheckSquare className="w-5 h-5 text-violet-600 drop-shadow" />
-          ) : (
-            <Square className="w-5 h-5 text-white/80 drop-shadow opacity-0 group-hover:opacity-100 transition-opacity" />
-          )}
-        </button>
-
-        {/* 보정 완료 뱃지 */}
-        <div className="absolute top-2 right-2">
-          {isEnhanced ? (
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500 text-white shadow">
-              <CheckCircle2 className="w-3 h-3" />
-              완료
-            </span>
-          ) : (
-            <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-black/50 text-white">
-              원본
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* 정보 영역 */}
-      <div className="p-2.5">
-        <p className="text-xs font-medium text-gray-700 truncate mb-0.5" title={photo.filename}>
-          {photo.filename}
-        </p>
-        <p className="text-xs text-gray-400 mb-1.5">
-          {photo.width}×{photo.height} · {formatBytes(photo.bytes)}
-        </p>
-
-        {/* 보정 완료 시 적용 내용 표시 */}
-        {isEnhanced && enhancementItems.length > 0 && (
-          <div className="mb-1.5 p-1.5 bg-emerald-50 rounded-lg border border-emerald-100">
-            <p className="text-xs font-bold text-emerald-700 mb-0.5">✓ 보정 적용 내용</p>
-            <ul className="space-y-0.5">
-              {enhancementItems.map((item, i) => (
-                <li key={i} className="text-xs text-emerald-600 flex items-center gap-1">
-                  <span className="w-1 h-1 rounded-full bg-emerald-400 flex-shrink-0" />
-                  {item}
-                </li>
-              ))}
-            </ul>
+      }`}>
+        {/* 사진 영역 */}
+        <div className="relative aspect-[3/4] bg-gray-100 overflow-hidden cursor-pointer" onClick={onClickPhoto}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={photo.url} alt={photo.filename}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-200 flex items-center justify-center">
+            <Eye className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
           </div>
-        )}
 
-        {error && (
-          <p className="text-xs text-red-500 flex items-center gap-1 mb-1">
-            <AlertCircle className="w-3 h-3" />{error}
-          </p>
-        )}
+          {/* 체크박스 */}
+          <button onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
+            className="absolute top-2 left-2 z-10">
+            {selected
+              ? <CheckSquare className="w-5 h-5 text-violet-600 drop-shadow" />
+              : <Square className="w-5 h-5 text-white/80 drop-shadow opacity-0 group-hover:opacity-100 transition-opacity" />}
+          </button>
 
-        {/* 보정 버튼 */}
-        {!isEnhanced ? (
+          {/* 완료 뱃지 */}
+          <div className="absolute top-2 right-2">
+            {isEnhanced
+              ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500 text-white shadow">
+                  <CheckCircle2 className="w-3 h-3" />AI 보정
+                </span>
+              : <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-black/50 text-white">원본</span>}
+          </div>
+        </div>
+
+        {/* 정보 */}
+        <div className="p-2.5">
+          <p className="text-xs font-medium text-gray-700 truncate mb-0.5">{photo.filename}</p>
+          <p className="text-xs text-gray-400 mb-2">{photo.width}×{photo.height} · {formatBytes(photo.bytes)}</p>
+
+          {/* 보정 버튼 */}
           <button
-            onClick={handleEnhance}
-            disabled={enhancing}
-            className="w-full py-1.5 rounded-lg text-xs font-bold text-white transition-all disabled:opacity-60 flex items-center justify-center gap-1.5"
-            style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)" }}
+            onClick={() => { setShowModal(true); setError(null); }}
+            className={`w-full py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+              isEnhanced
+                ? "text-violet-600 bg-violet-50 hover:bg-violet-100 border border-violet-100"
+                : "text-white"
+            }`}
+            style={!isEnhanced ? { background: "linear-gradient(135deg, #7c3aed, #a855f7)" } : undefined}
           >
-            {enhancing ? (
-              <><Loader2 className="w-3 h-3 animate-spin" />보정 중...</>
-            ) : (
-              <><Sparkles className="w-3 h-3" />보정하기</>
-            )}
+            <Sparkles className="w-3 h-3" />
+            {isEnhanced ? "재보정" : "AI 보정"}
           </button>
-        ) : (
-          <button
-            onClick={handleEnhance}
-            disabled={enhancing}
-            className="w-full py-1.5 rounded-lg text-xs font-medium text-violet-600 bg-violet-50 hover:bg-violet-100 transition-colors disabled:opacity-60 flex items-center justify-center gap-1.5 border border-violet-100"
-          >
-            {enhancing ? (
-              <><Loader2 className="w-3 h-3 animate-spin" />재보정 중...</>
-            ) : (
-              <><Sparkles className="w-3 h-3" />재보정</>
-            )}
-          </button>
-        )}
+        </div>
       </div>
-    </div>
+
+      {/* ── AI 보정 모달 ─────────────────────────────────── */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.7)" }}
+          onClick={() => !processing && setShowModal(false)}>
+          <div
+            className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[95vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 모달 헤더 */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white rounded-t-2xl">
+              <div>
+                <h2 className="text-base font-extrabold text-gray-900 flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-violet-600" />
+                  AI 프로필 보정
+                </h2>
+                <p className="text-xs text-gray-400 mt-0.5">{photo.filename}</p>
+              </div>
+              <button onClick={() => !processing && setShowModal(false)}
+                disabled={processing}
+                className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors disabled:opacity-30">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* 왼쪽: 옵션 패널 */}
+              <div className="space-y-4">
+                <RetouchOptionsPanel value={options} onChange={setOptions} />
+
+                {/* 보정 실행 버튼 */}
+                <button
+                  onClick={handleRetouch}
+                  disabled={processing}
+                  className="w-full py-3.5 rounded-xl text-sm font-extrabold text-white transition-all disabled:opacity-60 flex items-center justify-center gap-2 shadow-lg"
+                  style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)" }}
+                >
+                  {processing ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      AI 보정 중... (20~45초 소요)
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-5 h-5" />
+                      {isEnhanced ? "다시 보정하기" : "AI 보정 시작"}
+                    </>
+                  )}
+                </button>
+
+                {/* 처리 중 안내 */}
+                {processing && (
+                  <div className="p-3 bg-violet-50 border border-violet-100 rounded-xl text-xs text-violet-700">
+                    <p className="font-bold mb-1">🤖 AI가 보정 중입니다</p>
+                    <p>얼굴 분석 → 피부 보정 → 배경 변경 순서로 처리됩니다.</p>
+                    <p className="mt-1 text-violet-500">보정 강도에 따라 20~60초 소요됩니다.</p>
+                  </div>
+                )}
+
+                {/* 에러 */}
+                {error && (
+                  <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">보정 실패</p>
+                      <p>{error}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 오른쪽: 미리보기 */}
+              <div className="space-y-4">
+                {resultUrl ? (
+                  <>
+                    <BeforeAfterSlider beforeUrl={photo.url} afterUrl={resultUrl} />
+                    <p className="text-xs text-center text-gray-400">← 드래그하여 원본과 비교</p>
+
+                    {/* 다운로드 버튼들 */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => handleDownload(photo.url, "원본")}
+                        className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+                      >
+                        <Download className="w-3.5 h-3.5" /> 원본 저장
+                      </button>
+                      <button
+                        onClick={() => handleDownload(resultUrl, "보정본")}
+                        className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold text-white transition-all"
+                        style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)" }}
+                      >
+                        <Download className="w-3.5 h-3.5" /> 보정본 저장
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="aspect-square rounded-xl bg-gray-100 flex flex-col items-center justify-center border-2 border-dashed border-gray-200">
+                    {processing ? (
+                      <>
+                        <div className="w-16 h-16 rounded-full border-4 border-violet-200 border-t-violet-600 animate-spin mb-4" />
+                        <p className="text-sm font-bold text-gray-600">AI 보정 처리 중...</p>
+                        <p className="text-xs text-gray-400 mt-1">잠시만 기다려주세요</p>
+                      </>
+                    ) : (
+                      <>
+                        {/* 원본 미리보기 */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={photo.url} alt="원본" className="w-full h-full object-cover rounded-xl opacity-60" />
+                        <div className="absolute inset-0 flex items-center justify-center rounded-xl">
+                          <div className="text-center">
+                            <RefreshCw className="w-10 h-10 text-violet-400 mx-auto mb-2" />
+                            <p className="text-sm font-bold text-gray-700">옵션 설정 후</p>
+                            <p className="text-sm font-bold text-violet-600">AI 보정 시작</p>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
