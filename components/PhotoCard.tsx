@@ -47,9 +47,18 @@ export default function PhotoCard({
           options,
         }),
       });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
-      setResultUrl(data.data.url);
+
+      // 응답이 JSON이 아닐 수 있으므로 안전하게 파싱
+      let data: { success: boolean; data?: { url: string }; error?: string };
+      const text = await res.text();
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(res.ok ? '서버 응답 오류' : `서버 오류 (${res.status}): 잠시 후 다시 시도해 주세요.`);
+      }
+
+      if (!data.success) throw new Error(data.error ?? '알 수 없는 오류');
+      setResultUrl(data.data!.url);
       onEnhanced();
     } catch (err) {
       setError((err as Error).message);
