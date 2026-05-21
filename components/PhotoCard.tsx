@@ -227,7 +227,7 @@ export default function PhotoCard({
                         <p className="text-xs text-gray-400 mt-1">잠시만 기다려주세요</p>
                       </>
                     ) : (
-                      <>
+                      <div className="relative w-full h-full">
                         {/* 원본 미리보기 */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={photo.url} alt="원본" className="w-full h-full object-cover rounded-xl opacity-60" />
@@ -238,7 +238,7 @@ export default function PhotoCard({
                             <p className="text-sm font-bold text-violet-600">AI 보정 시작</p>
                           </div>
                         </div>
-                      </>
+                      </div>
                     )}
                   </div>
                 )}
