@@ -3,7 +3,14 @@ import Replicate from 'replicate';
 import cloudinary, { getEnhancedFolder } from '@/lib/cloudinary';
 
 export const runtime = 'nodejs';
-export const maxDuration = 30; // 상태 확인 + Cloudinary 업로드
+export const maxDuration = 30;
+
+// 에러 객체를 안전하게 문자열로 변환
+function safeMsg(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'string') return e;
+  try { return JSON.stringify(e); } catch { return '알 수 없는 오류'; }
+}
 
 // GET /api/retouch/status?id=xxx&publicId=yyy&projectName=zzz&filename=aaa
 export async function GET(req: NextRequest) {
@@ -30,11 +37,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, status: prediction.status });
     }
 
-    // 실패
+    // 실패 — prediction.error가 객체일 수 있으므로 safeMsg 사용
     if (prediction.status === 'failed' || prediction.status === 'canceled') {
+      const errMsg = prediction.error ? safeMsg(prediction.error) : prediction.status;
       return NextResponse.json({
         success: false,
-        error: `AI 처리 실패: ${prediction.error ?? prediction.status}`,
+        error: `AI 처리 실패: ${errMsg}`,
       });
     }
 
@@ -75,7 +83,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: false, error: `알 수 없는 상태: ${prediction.status}` });
 
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = safeMsg(error);
     console.error('[GET /api/retouch/status]', message);
     return NextResponse.json({ success: false, error: `상태 확인 실패: ${message}` }, { status: 500 });
   }
