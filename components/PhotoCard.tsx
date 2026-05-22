@@ -25,6 +25,7 @@ export default function PhotoCard({
   const [showModal, setShowModal] = useState(false);
   const [options, setOptions] = useState<RetouchOptions>(DEFAULT_OPTIONS);
   const [processing, setProcessing] = useState(false);
+  const [elapsed, setElapsed] = useState(0);   // 경과 초
   const [error, setError] = useState<string | null>(null);
   const [resultUrl, setResultUrl] = useState<string | null>(photo.enhancedUrl ?? null);
 
@@ -35,7 +36,12 @@ export default function PhotoCard({
   // ── AI 보정 실행 (비동기 폴링 방식 — Vercel 60초 제한 우회) ──
   const handleRetouch = async () => {
     setProcessing(true);
+    setElapsed(0);
     setError(null);
+
+    // 경과 시간 타이머
+    const timer = setInterval(() => setElapsed((s) => s + 1), 1000);
+
     try {
       // 1단계: 예측 시작 (즉시 반환)
       const startRes = await fetch("/api/retouch", {
@@ -62,9 +68,9 @@ export default function PhotoCard({
         filename: photo.filename,
       });
 
-      // 2단계: 3초마다 상태 폴링 (최대 90초)
-      for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 3000));
+      // 2단계: 5초마다 상태 폴링 (최대 5분 = 60회)
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 5000));
 
         const statusRes = await fetch(`/api/retouch/status?${params}`);
         const statusText = await statusRes.text();
@@ -86,11 +92,12 @@ export default function PhotoCard({
         }
         // starting / processing → 계속 폴링
       }
-      throw new Error("처리 시간이 초과되었습니다. 다시 시도해 주세요.");
+      throw new Error("처리 시간이 초과되었습니다(5분). 다시 시도해 주세요.");
 
     } catch (err) {
       setError((err as Error).message);
     } finally {
+      clearInterval(timer);
       setProcessing(false);
     }
   };
@@ -213,9 +220,12 @@ export default function PhotoCard({
                 {/* 처리 중 안내 */}
                 {processing && (
                   <div className="p-3 bg-violet-50 border border-violet-100 rounded-xl text-xs text-violet-700">
-                    <p className="font-bold mb-1">🤖 AI가 보정 중입니다</p>
-                    <p>얼굴 분석 → 피부 보정 → 배경 변경 순서로 처리됩니다.</p>
-                    <p className="mt-1 text-violet-500">보정 강도에 따라 20~60초 소요됩니다.</p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="font-bold">🤖 AI가 보정 중입니다</p>
+                      <span className="font-mono text-violet-500">{elapsed}초 경과</span>
+                    </div>
+                    <p>얼굴 복원 · 피부 보정 처리 중...</p>
+                    <p className="mt-1 text-violet-400">첫 실행 시 콜드 스타트로 1~3분 소요될 수 있습니다.</p>
                   </div>
                 )}
 

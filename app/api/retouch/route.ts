@@ -46,8 +46,8 @@ export async function POST(req: NextRequest) {
         image:               originalUrl,
         codeformer_fidelity: getFidelity(options.strength),
         background_enhance:  false,
-        face_upsample:       true,
-        upscale:             2,
+        face_upsample:       false,  // true→false: 속도 개선
+        upscale:             1,      // 2→1: 속도 개선 (업스케일 제거)
       },
     });
 
