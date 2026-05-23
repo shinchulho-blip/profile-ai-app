@@ -54,11 +54,9 @@ export default function ProjectPage() {
     }
   }, [projectName]);
 
-  // 페이지 진입 시 사진 로드 + 백그라운드에서 AI 모델 웜업
+  // 페이지 진입 시 사진 로드
   useEffect(() => {
     fetchPhotos();
-    // 콜드스타트 방지: 모델을 미리 로드해 두면 보정 시 즉시 처리 가능
-    fetch('/api/retouch/warmup').catch(() => {/* 실패해도 무시 */});
   }, [fetchPhotos]);
 
   // ── 체크박스 선택 ─────────────────────────────────────────

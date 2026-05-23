@@ -1,50 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Replicate, { type Prediction } from 'replicate';
+import Replicate from 'replicate';
 import { type RetouchOptions } from '@/lib/prompts';
+import {
+  createPredictionWithRateLimit,
+  isRateLimitError,
+  safeMsg,
+} from '@/lib/replicatePredictions';
 
 export const runtime = 'nodejs';
-export const maxDuration = 30; // 429 재시도 대기 시간을 포함
+export const maxDuration = 60; // 저크레딧 계정의 429 재시도/대기 시간을 포함
 
 // CodeFormer 알려진 안정 버전 (fallback용)
 const CODEFORMER_FALLBACK = '7de2ea26c616d5bf2245ad0d5e24f0ff9a6204578a5c876db53142edd9d2cd56';
-const MAX_CREATE_ATTEMPTS = 3;
-const MAX_RETRY_DELAY_MS = 8000;
 
 function getFidelity(strength: RetouchOptions['strength']): number {
   return { natural: 0.8, standard: 0.65, polished: 0.5 }[strength];
-}
-
-function safeMsg(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === 'string') return error;
-  try { return JSON.stringify(error); } catch { return '알 수 없는 오류'; }
-}
-
-function isRateLimitError(error: unknown, message: string): boolean {
-  if (message.includes('429') || /rate limit/i.test(message)) return true;
-  if (!error || typeof error !== 'object') return false;
-
-  const record = error as Record<string, unknown>;
-  return record.status === 429 || record.statusCode === 429;
-}
-
-function getRetryDelayMs(error: unknown, message: string): number {
-  const retryAfter = error && typeof error === 'object'
-    ? Number((error as Record<string, unknown>).retry_after)
-    : NaN;
-  const parsedSeconds = Number.isFinite(retryAfter)
-    ? retryAfter
-    : Number(
-        message.match(/retry[_-]?after["':\s]+(\d+)/i)?.[1]
-        ?? message.match(/~?(\d+)s/i)?.[1]
-      );
-
-  const delaySeconds = Number.isFinite(parsedSeconds) ? parsedSeconds + 1 : 4;
-  return Math.min(delaySeconds * 1000, MAX_RETRY_DELAY_MS);
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // POST /api/retouch — 예측 시작만 하고 즉시 반환 (타임아웃 방지)
@@ -83,27 +53,23 @@ export async function POST(req: NextRequest) {
       upscale:             1,
     };
 
-    let prediction: Prediction | undefined;
-    for (let attempt = 0; attempt < MAX_CREATE_ATTEMPTS; attempt++) {
-      try {
-        prediction = await replicate.predictions.create({ version: versionId, input });
-        break; // 성공
-      } catch (err: unknown) {
-        const msg = safeMsg(err);
-        if (isRateLimitError(err, msg) && attempt < MAX_CREATE_ATTEMPTS - 1) {
-          await sleep(getRetryDelayMs(err, msg));
-          continue;
-        }
-        throw err;
-      }
-    }
+    const prediction = await createPredictionWithRateLimit(replicate, { version: versionId, input });
 
-    if (!prediction) throw new Error('예측 생성 실패');
     return NextResponse.json({ success: true, predictionId: prediction.id });
 
   } catch (error: unknown) {
     const message = safeMsg(error);
     console.error('[POST /api/retouch]', message);
+    if (isRateLimitError(error, message)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: '현재 Replicate 요청 제한에 걸렸습니다. 크레딧이 $5 미만이면 AI 보정 시작이 10초에 1장 정도로 제한됩니다. 잠시 후 다시 시도해 주세요.',
+        },
+        { status: 429 }
+      );
+    }
+
     return NextResponse.json({ success: false, error: `보정 시작 실패: ${message}` }, { status: 500 });
   }
 }
