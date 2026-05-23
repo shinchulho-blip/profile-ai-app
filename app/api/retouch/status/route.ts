@@ -11,6 +11,9 @@ const CLOUDINARY_UPLOAD_LIMIT_BYTES = 10 * 1024 * 1024;
 const TARGET_UPLOAD_BYTES = 9 * 1024 * 1024;
 const JPEG_QUALITIES = [88, 82, 76, 70, 64, 58];
 const MAX_IMAGE_DIMENSIONS = [2200, 1800, 1400, 1200];
+const RETOUCH_OUTPUT_QUALITY = 92;
+const ORIGINAL_BLEND_OPACITY = 0.18;
+const FACE_SOFTEN_OPACITY = 0.14;
 
 // 에러 객체를 안전하게 문자열로 변환
 function safeMsg(e: unknown): string {
@@ -28,16 +31,93 @@ async function downloadImage(url: string): Promise<Buffer> {
   return Buffer.from(await response.arrayBuffer());
 }
 
-async function makeCloudinarySafeImage(url: string): Promise<Buffer> {
-  const original = await downloadImage(url);
-  if (original.byteLength <= TARGET_UPLOAD_BYTES) {
-    return original;
+async function downloadOptionalImage(url: string): Promise<Buffer | null> {
+  try {
+    return await downloadImage(url);
+  } catch {
+    return null;
+  }
+}
+
+function buildFaceMask(width: number, height: number): Buffer {
+  return Buffer.from(`
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100%" height="100%" fill="black"/>
+      <ellipse cx="${width * 0.5}" cy="${height * 0.48}" rx="${width * 0.24}" ry="${height * 0.33}" fill="white"/>
+    </svg>
+  `);
+}
+
+async function softenFaceArea(image: Buffer): Promise<Buffer> {
+  const metadata = await sharp(image, { failOn: 'none' }).metadata();
+  const { width, height } = metadata;
+
+  if (!width || !height) {
+    return image;
+  }
+
+  const blurredFace = await sharp(image, { failOn: 'none' })
+    .blur(0.7)
+    .ensureAlpha(FACE_SOFTEN_OPACITY)
+    .png()
+    .toBuffer();
+  const maskedBlur = await sharp(blurredFace, { failOn: 'none' })
+    .composite([{ input: buildFaceMask(width, height), blend: 'dest-in' }])
+    .png()
+    .toBuffer();
+
+  return sharp(image, { failOn: 'none' })
+    .composite([{ input: maskedBlur, blend: 'over' }])
+    .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
+    .toBuffer();
+}
+
+async function postProcessRetouchOutput(output: Buffer, original: Buffer | null): Promise<Buffer> {
+  let processed = await sharp(output, { failOn: 'none' })
+    .rotate()
+    .toColorspace('srgb')
+    .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
+    .toBuffer();
+  const metadata = await sharp(processed, { failOn: 'none' }).metadata();
+
+  if (original && metadata.width && metadata.height) {
+    // Blend a little of the source portrait back in to suppress reconstruction artifacts.
+    const originalLayer = await sharp(original, { failOn: 'none' })
+      .rotate()
+      .resize({
+        width: metadata.width,
+        height: metadata.height,
+        fit: 'cover',
+      })
+      .toColorspace('srgb')
+      .modulate({ brightness: 1.02, saturation: 0.98 })
+      .ensureAlpha(ORIGINAL_BLEND_OPACITY)
+      .png()
+      .toBuffer();
+
+    processed = await sharp(processed, { failOn: 'none' })
+      .composite([{ input: originalLayer, blend: 'over' }])
+      .modulate({ brightness: 1.02, saturation: 0.98 })
+      .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
+      .toBuffer();
+  }
+
+  return softenFaceArea(processed);
+}
+
+async function makeCloudinarySafeImage(url: string, originalUrl: string): Promise<Buffer> {
+  const output = await downloadImage(url);
+  const original = await downloadOptionalImage(originalUrl);
+  const processed = await postProcessRetouchOutput(output, original);
+
+  if (processed.byteLength <= TARGET_UPLOAD_BYTES) {
+    return processed;
   }
 
   let fallback: Buffer | null = null;
   for (const maxDimension of MAX_IMAGE_DIMENSIONS) {
     for (const quality of JPEG_QUALITIES) {
-      const compressed = await sharp(original, { failOn: 'none' })
+      const compressed = await sharp(processed, { failOn: 'none' })
         .rotate()
         .resize({
           width: maxDimension,
@@ -142,7 +222,13 @@ export async function GET(req: NextRequest) {
       const enhancedFolder = getEnhancedFolder(projectName);
       const baseName = (filename || publicId.split('/').pop() || 'photo').replace(/\.[^.]+$/, '');
 
-      const uploadImage = await makeCloudinarySafeImage(outputUrl as string);
+      const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+      if (!cloudName) {
+        return NextResponse.json({ success: false, error: 'Cloudinary 설정이 누락되었습니다.' }, { status: 500 });
+      }
+
+      const originalUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
+      const uploadImage = await makeCloudinarySafeImage(outputUrl as string, originalUrl);
       const uploaded = await uploadImageBuffer(uploadImage, {
         folder: enhancedFolder,
         publicId: baseName,
