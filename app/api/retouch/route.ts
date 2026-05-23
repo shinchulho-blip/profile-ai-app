@@ -1,15 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Replicate from 'replicate';
+import Replicate, { type Prediction } from 'replicate';
 import { type RetouchOptions } from '@/lib/prompts';
 
 export const runtime = 'nodejs';
-export const maxDuration = 15; // 예측 생성만 하므로 15초면 충분
+export const maxDuration = 30; // 429 재시도 대기 시간을 포함
 
 // CodeFormer 알려진 안정 버전 (fallback용)
 const CODEFORMER_FALLBACK = '7de2ea26c616d5bf2245ad0d5e24f0ff9a6204578a5c876db53142edd9d2cd56';
+const MAX_CREATE_ATTEMPTS = 3;
+const MAX_RETRY_DELAY_MS = 8000;
 
 function getFidelity(strength: RetouchOptions['strength']): number {
   return { natural: 0.8, standard: 0.65, polished: 0.5 }[strength];
+}
+
+function safeMsg(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  try { return JSON.stringify(error); } catch { return '알 수 없는 오류'; }
+}
+
+function isRateLimitError(error: unknown, message: string): boolean {
+  if (message.includes('429') || /rate limit/i.test(message)) return true;
+  if (!error || typeof error !== 'object') return false;
+
+  const record = error as Record<string, unknown>;
+  return record.status === 429 || record.statusCode === 429;
+}
+
+function getRetryDelayMs(error: unknown, message: string): number {
+  const retryAfter = error && typeof error === 'object'
+    ? Number((error as Record<string, unknown>).retry_after)
+    : NaN;
+  const parsedSeconds = Number.isFinite(retryAfter)
+    ? retryAfter
+    : Number(
+        message.match(/retry[_-]?after["':\s]+(\d+)/i)?.[1]
+        ?? message.match(/~?(\d+)s/i)?.[1]
+      );
+
+  const delaySeconds = Number.isFinite(parsedSeconds) ? parsedSeconds + 1 : 4;
+  return Math.min(delaySeconds * 1000, MAX_RETRY_DELAY_MS);
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // POST /api/retouch — 예측 시작만 하고 즉시 반환 (타임아웃 방지)
@@ -48,19 +83,15 @@ export async function POST(req: NextRequest) {
       upscale:             1,
     };
 
-    let prediction;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    let prediction: Prediction | undefined;
+    for (let attempt = 0; attempt < MAX_CREATE_ATTEMPTS; attempt++) {
       try {
         prediction = await replicate.predictions.create({ version: versionId, input });
         break; // 성공
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const is429 = msg.includes('429');
-        if (is429 && attempt < 2) {
-          // retry_after 추출 (e.g. "~6s" 또는 "retry_after\":6")
-          const m = msg.match(/(\d+)s\.?"?\s*}/) || msg.match(/retry_after[":]+\s*(\d+)/);
-          const wait = m ? (parseInt(m[1]) + 2) * 1000 : 10000;
-          await new Promise(r => setTimeout(r, wait));
+        const msg = safeMsg(err);
+        if (isRateLimitError(err, msg) && attempt < MAX_CREATE_ATTEMPTS - 1) {
+          await sleep(getRetryDelayMs(err, msg));
           continue;
         }
         throw err;
@@ -71,7 +102,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, predictionId: prediction.id });
 
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = safeMsg(error);
     console.error('[POST /api/retouch]', message);
     return NextResponse.json({ success: false, error: `보정 시작 실패: ${message}` }, { status: 500 });
   }
