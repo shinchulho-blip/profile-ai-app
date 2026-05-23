@@ -10,8 +10,8 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 60; // 저크레딧 계정의 429 재시도/대기 시간을 포함
 
-const CODEFORMER_FALLBACK = '7de2ea26c616d5bf2245ad0d5e24f0ff9a6204578a5c876db53142edd9d2cd56';
-const GFPGAN_MODEL = 'tencentarc/gfpgan';
+const CODEFORMER_FALLBACK = 'cc4956dd26fa5a7185d5660cc9100fab1b8070a1d1654a8bb5eb6d443b020bb2';
+const GFPGAN_VERSION = '0fbacf7afc6c144e5be9767cff80f25aff23e52b0708f17e20f9879b2f21516c';
 const RETOUCH_MODEL = process.env.RETOUCH_MODEL ?? 'gfpgan';
 
 function getFidelity(strength: RetouchOptions['strength']): number {
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
 
     // GFPGAN is a face restoration/enhancement model, not a generative portrait rewrite.
     const prediction = await createPredictionWithRateLimit(replicate, {
-      model: GFPGAN_MODEL,
+      version: GFPGAN_VERSION,
       input: {
         img:     originalUrl,
         version: 'v1.4',
