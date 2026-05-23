@@ -13,8 +13,21 @@ const JPEG_QUALITIES = [92, 88, 82, 76, 70, 64];
 const MAX_IMAGE_DIMENSIONS = [1800, 1600, 1400, 1200];
 
 const RETOUCH_OUTPUT_QUALITY = 92;
-const EXPRESSION_LINE_SMOOTH_OPACITY = 0.38;
-const EXPRESSION_LINE_LIGHTEN_OPACITY = 0.72;
+
+const RETOUCH_STRENGTHS = {
+  natural: {
+    smooth: 0.20,
+    lighten: 0.40,
+  },
+  standard: {
+    smooth: 0.40,
+    lighten: 0.65,
+  },
+  polished: {
+    smooth: 0.65,
+    lighten: 0.90,
+  },
+} as const;
 
 type PortraitLayout = {
   face: { cx: number; cy: number; rx: number; ry: number };
@@ -92,7 +105,11 @@ function buildExpressionLineMask(width: number, height: number): Buffer {
   `);
 }
 
-async function softenNoseAndMouthLines(image: Buffer): Promise<Buffer> {
+async function softenNoseAndMouthLines(
+  image: Buffer,
+  smoothOpacity: number,
+  lightenOpacity: number
+): Promise<Buffer> {
   const metadata = await sharp(image, { failOn: 'none' }).metadata();
   const { width, height } = metadata;
 
@@ -105,7 +122,7 @@ async function softenNoseAndMouthLines(image: Buffer): Promise<Buffer> {
     .median(7)
     .blur(1.8)
     .modulate({ brightness: 1.03, saturation: 0.98 })
-    .ensureAlpha(EXPRESSION_LINE_SMOOTH_OPACITY)
+    .ensureAlpha(smoothOpacity)
     .png()
     .toBuffer();
   const maskedSmoothedLines = await sharp(smoothedLines, { failOn: 'none' })
@@ -120,7 +137,7 @@ async function softenNoseAndMouthLines(image: Buffer): Promise<Buffer> {
     .median(5)
     .blur(1.2)
     .modulate({ brightness: 1.16, saturation: 0.98 })
-    .ensureAlpha(EXPRESSION_LINE_LIGHTEN_OPACITY)
+    .ensureAlpha(lightenOpacity)
     .png()
     .toBuffer();
   const maskedLightenedLines = await sharp(lightenedLines, { failOn: 'none' })
@@ -149,7 +166,7 @@ async function downloadImage(url: string): Promise<Buffer> {
   return Buffer.from(await response.arrayBuffer());
 }
 
-async function makeCloudinarySafeImage(url: string): Promise<Buffer> {
+async function makeCloudinarySafeImage(url: string, strength: 'natural' | 'standard' | 'polished'): Promise<Buffer> {
   const image = await downloadImage(url);
   const normalized = await sharp(image, { failOn: 'none' })
     .rotate()
@@ -157,7 +174,8 @@ async function makeCloudinarySafeImage(url: string): Promise<Buffer> {
     .jpeg({ quality: JPEG_QUALITIES[0], mozjpeg: true })
     .toBuffer();
 
-  const processed = await softenNoseAndMouthLines(normalized);
+  const config = RETOUCH_STRENGTHS[strength] ?? RETOUCH_STRENGTHS.standard;
+  const processed = await softenNoseAndMouthLines(normalized, config.smooth, config.lighten);
 
   if (processed.byteLength <= TARGET_UPLOAD_BYTES) {
     return processed;
@@ -267,7 +285,8 @@ export async function GET(req: NextRequest) {
 
       const enhancedFolder = getEnhancedFolder(projectName);
       const baseName = (filename || publicId.split('/').pop() || 'photo').replace(/\.[^.]+$/, '');
-      const uploadImage = await makeCloudinarySafeImage(outputUrl as string);
+      const strength = (searchParams.get('strength') ?? 'standard') as 'natural' | 'standard' | 'polished';
+      const uploadImage = await makeCloudinarySafeImage(outputUrl as string, strength);
       const uploaded = await uploadImageBuffer(uploadImage, {
         folder: enhancedFolder,
         publicId: `natural-profile-retouch-${baseName}`,

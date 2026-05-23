@@ -15,8 +15,8 @@ const GFPGAN_VERSION = '0fbacf7afc6c144e5be9767cff80f25aff23e52b0708f17e20f9879b
 const RETOUCH_MODEL = process.env.RETOUCH_MODEL ?? 'codeformer';
 
 function getFidelity(strength: RetouchOptions['strength']): number {
-  // Keep identity and age impression first. Lower values edit more aggressively.
-  return { natural: 0.96, standard: 0.92, polished: 0.88 }[strength];
+  // Lower values edit more aggressively to create visible, beautiful differences.
+  return { natural: 0.85, standard: 0.70, polished: 0.50 }[strength];
 }
 
 function getGfpganWeight(strength: RetouchOptions['strength']): number {

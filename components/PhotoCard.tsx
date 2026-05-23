@@ -67,6 +67,7 @@ export default function PhotoCard({
         projectName,
         filename: photo.filename,
         smileIntensity: String(options.smileIntensity),
+        strength: String(options.strength),
       });
 
       // 2단계: 5초마다 상태 폴링 (최대 5분 = 60회)
