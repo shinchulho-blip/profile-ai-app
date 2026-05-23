@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 60; // 저크레딧 계정의 429 재시도/대기 시간을 포함
 
 // CodeFormer 알려진 안정 버전 (fallback용)
-const CODEFORMER_FALLBACK = '7de2ea26c616d5bf2245ad0d5e24f0ff9a6204578a5c876db53142edd9d2cd56';
+const CODEFORMER_FALLBACK = 'cc4956dd26fa5a7185d5660cc9100fab1b8070a1d1654a8bb5eb6d443b020bb2';
 
 function getFidelity(strength: RetouchOptions['strength']): number {
   return { natural: 0.8, standard: 0.65, polished: 0.5 }[strength];
