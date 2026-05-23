@@ -11,10 +11,17 @@ export const runtime = 'nodejs';
 export const maxDuration = 60; // 저크레딧 계정의 429 재시도/대기 시간을 포함
 
 const CODEFORMER_FALLBACK = '7de2ea26c616d5bf2245ad0d5e24f0ff9a6204578a5c876db53142edd9d2cd56';
+const GFPGAN_MODEL = 'tencentarc/gfpgan';
+const RETOUCH_MODEL = process.env.RETOUCH_MODEL ?? 'gfpgan';
 
 function getFidelity(strength: RetouchOptions['strength']): number {
   // Keep identity and age impression first. Lower values edit more aggressively.
   return { natural: 0.96, standard: 0.92, polished: 0.88 }[strength];
+}
+
+function getGfpganWeight(strength: RetouchOptions['strength']): number {
+  // Higher weight favors identity; keep values conservative for profile photos.
+  return { natural: 0.9, standard: 0.8, polished: 0.7 }[strength];
 }
 
 function getModelInputUrl(cloudName: string, publicId: string): string {
@@ -43,24 +50,36 @@ export async function POST(req: NextRequest) {
     const originalUrl = getModelInputUrl(cloudName, publicId);
     const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 
-    let versionId = CODEFORMER_FALLBACK;
-    try {
-      const info = await replicate.models.get('sczhou', 'codeformer');
-      versionId = info.latest_version?.id ?? CODEFORMER_FALLBACK;
-    } catch { /* fallback 사용 */ }
+    if (RETOUCH_MODEL === 'codeformer') {
+      let versionId = CODEFORMER_FALLBACK;
+      try {
+        const info = await replicate.models.get('sczhou', 'codeformer');
+        versionId = info.latest_version?.id ?? CODEFORMER_FALLBACK;
+      } catch { /* fallback 사용 */ }
 
-    // Identity-safe face restoration. This avoids generative portrait rewrites.
-    const input = {
-      image:                originalUrl,
-      codeformer_fidelity:  getFidelity(options.strength),
-      background_enhance:   false,
-      face_upsample:        false,
-      upscale:              1,
-    };
+      const prediction = await createPredictionWithRateLimit(replicate, {
+        version: versionId,
+        input: {
+          image:                originalUrl,
+          codeformer_fidelity:  getFidelity(options.strength),
+          background_enhance:   false,
+          face_upsample:        false,
+          upscale:              1,
+        },
+      });
 
+      return NextResponse.json({ success: true, predictionId: prediction.id });
+    }
+
+    // GFPGAN is a face restoration/enhancement model, not a generative portrait rewrite.
     const prediction = await createPredictionWithRateLimit(replicate, {
-      version: versionId,
-      input,
+      model: GFPGAN_MODEL,
+      input: {
+        img:     originalUrl,
+        version: 'v1.4',
+        scale:   1,
+        weight:  getGfpganWeight(options.strength),
+      },
     });
 
     return NextResponse.json({ success: true, predictionId: prediction.id });
