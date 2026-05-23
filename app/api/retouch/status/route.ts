@@ -322,7 +322,7 @@ export async function GET(req: NextRequest) {
         status:  'succeeded',
         data: {
           publicId: uploaded.public_id,
-          url:      uploaded.secure_url,
+          url:      `${uploaded.secure_url}?t=${Date.now()}`,
           width:    uploaded.width,
           height:   uploaded.height,
           bytes:    uploaded.bytes,

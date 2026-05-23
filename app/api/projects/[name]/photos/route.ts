@@ -45,10 +45,9 @@ export async function GET(
       const shouldReplace = !existing
         || (isNaturalProfileRetouch && !existing.isNaturalProfileRetouch)
         || new Date(r.created_at ?? 0).getTime() > new Date(existing.createdAt ?? 0).getTime();
-
       if (shouldReplace) {
         enhancedMap.set(filename, {
-          url: r.secure_url,
+          url: `${r.secure_url}?t=${new Date(r.created_at || 0).getTime()}`,
           publicId: r.public_id,
           createdAt: r.created_at,
           isNaturalProfileRetouch,
