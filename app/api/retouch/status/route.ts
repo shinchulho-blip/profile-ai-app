@@ -57,7 +57,7 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
 
   if (aspect >= 1.15) {
     return {
-      face: { cx: 0.5, cy: 0.34, rx: 0.19, ry: 0.23 },
+      face: { cx: 0.5, cy: 0.32, rx: 0.17, ry: 0.18 },
       mouth: { y: 0.43, leftX: 0.43, rightX: 0.57, radiusX: 0.08, radiusY: 0.055 },
       lines: {
         leftNasolabial: [0.46, 0.36, 0.42, 0.40, 0.42, 0.46, 0.45, 0.50],
@@ -69,7 +69,7 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
   }
 
   return {
-    face: { cx: 0.5, cy: 0.49, rx: 0.26, ry: 0.34 },
+    face: { cx: 0.5, cy: 0.45, rx: 0.21, ry: 0.25 },
     mouth: { y: 0.66, leftX: 0.38, rightX: 0.62, radiusX: 0.12, radiusY: 0.09 },
     lines: {
       leftNasolabial: [0.43, 0.55, 0.40, 0.60, 0.39, 0.66, 0.43, 0.71],
@@ -157,69 +157,6 @@ function buildExpressionLineMask(width: number, height: number): Buffer {
   `);
 }
 
-function sampleBilinear(data: Buffer, width: number, height: number, channels: number, x: number, y: number, channel: number): number {
-  const x0 = Math.max(0, Math.min(width - 1, Math.floor(x)));
-  const y0 = Math.max(0, Math.min(height - 1, Math.floor(y)));
-  const x1 = Math.max(0, Math.min(width - 1, x0 + 1));
-  const y1 = Math.max(0, Math.min(height - 1, y0 + 1));
-  const wx = x - x0;
-  const wy = y - y0;
-
-  const topLeft = data[(y0 * width + x0) * channels + channel];
-  const topRight = data[(y0 * width + x1) * channels + channel];
-  const bottomLeft = data[(y1 * width + x0) * channels + channel];
-  const bottomRight = data[(y1 * width + x1) * channels + channel];
-  const top = topLeft * (1 - wx) + topRight * wx;
-  const bottom = bottomLeft * (1 - wx) + bottomRight * wx;
-
-  return Math.round(top * (1 - wy) + bottom * wy);
-}
-
-async function applySubtleSmileLift(image: Buffer, smileIntensity: 1 | 2 | 3): Promise<Buffer> {
-  if (smileIntensity <= 1) return image;
-
-  const { data, info } = await sharp(image, { failOn: 'none' })
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const { width, height, channels } = info;
-  const output = Buffer.from(data);
-  const { mouth } = getPortraitLayout(width, height);
-  const lift = height * (smileIntensity === 3 ? 0.026 : 0.016);
-  const radiusX = width * mouth.radiusX;
-  const radiusY = height * mouth.radiusY;
-  const corners = [
-    { x: width * mouth.leftX, y: height * mouth.y },
-    { x: width * mouth.rightX, y: height * mouth.y },
-  ];
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      let influence = 0;
-      for (const corner of corners) {
-        const dx = (x - corner.x) / radiusX;
-        const dy = (y - corner.y) / radiusY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        if (distance < 1) {
-          influence = Math.max(influence, Math.pow(1 - distance, 2));
-        }
-      }
-
-      if (influence <= 0) continue;
-
-      const sampleY = Math.min(height - 1, y + lift * influence);
-      const offset = (y * width + x) * channels;
-      for (let channel = 0; channel < channels; channel++) {
-        output[offset + channel] = sampleBilinear(data, width, height, channels, x, sampleY, channel);
-      }
-    }
-  }
-
-  return sharp(output, { raw: { width, height, channels } })
-    .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
-    .toBuffer();
-}
-
 async function softenNoseAndMouthLines(image: Buffer): Promise<Buffer> {
   const metadata = await sharp(image, { failOn: 'none' }).metadata();
   const { width, height } = metadata;
@@ -293,8 +230,10 @@ async function postProcessRetouchOutput(
       .toBuffer();
   }
 
-  const withSmile = await applySubtleSmileLift(processed, smileIntensity);
-  const withSofterLines = await softenNoseAndMouthLines(withSmile);
+  // Avoid geometric smile warping; it can distort the jaw on varied portrait crops.
+  const withSofterLines = smileIntensity > 1
+    ? await softenNoseAndMouthLines(processed)
+    : processed;
   return reduceBackgroundStrayHairs(withSofterLines);
 }
 
