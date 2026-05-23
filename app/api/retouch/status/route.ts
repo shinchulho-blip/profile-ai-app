@@ -271,14 +271,21 @@ async function makeCloudinarySafeImage(
     .jpeg({ quality: JPEG_QUALITIES[0], mozjpeg: true })
     .toBuffer();
 
+  const metadata = await sharp(normalized, { failOn: 'none' }).metadata();
+  const { width, height } = metadata;
+
+  // Resize the original image to match EXACTLY the AI output's dimensions.
+  // This guarantees pixel-perfect mask alignment and vastly optimizes processing speeds.
   const normalizedOriginal = await sharp(originalImage, { failOn: 'none' })
     .rotate()
+    .resize({
+      width: width ?? undefined,
+      height: height ?? undefined,
+      fit: 'fill',
+    })
     .toColorspace('srgb')
     .jpeg({ quality: JPEG_QUALITIES[0], mozjpeg: true })
     .toBuffer();
-
-  const metadata = await sharp(normalized, { failOn: 'none' }).metadata();
-  const { width, height } = metadata;
 
   const config = RETOUCH_STRENGTHS[strength] ?? RETOUCH_STRENGTHS.standard;
   const processed = await softenNoseAndMouthLines(normalized, config.smooth, config.lighten);
@@ -371,7 +378,9 @@ export async function GET(req: NextRequest) {
       const strength = (searchParams.get('strength') ?? 'standard') as 'natural' | 'standard' | 'polished';
       
       const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ?? '';
-      const originalUrl = `https://res.cloudinary.com/${cloudName}/image/upload/a_auto,q_auto:best,f_jpg/${publicId}`;
+      // Limit original image to 2048px on the fly using Cloudinary's dynamic CDN transformations.
+      // This drops the download size from e.g. 20MB to ~500KB, completely resolving 504 timeouts.
+      const originalUrl = `https://res.cloudinary.com/${cloudName}/image/upload/c_limit,w_2048,h_2048/a_auto,q_auto:best,f_jpg/${publicId}`;
 
       const uploadImage = await makeCloudinarySafeImage(outputUrl as string, originalUrl, strength);
       const uploaded = await uploadImageBuffer(uploadImage, {
