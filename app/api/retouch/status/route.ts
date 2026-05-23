@@ -163,6 +163,7 @@ function uploadImageBuffer(
         folder: options.folder,
         public_id: options.publicId,
         overwrite: true,
+        invalidate: true,
         resource_type: 'image',
       },
       (error, result) => {
