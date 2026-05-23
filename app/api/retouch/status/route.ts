@@ -12,10 +12,21 @@ const TARGET_UPLOAD_BYTES = 9 * 1024 * 1024;
 const JPEG_QUALITIES = [88, 82, 76, 70, 64, 58];
 const MAX_IMAGE_DIMENSIONS = [2200, 1800, 1400, 1200];
 const RETOUCH_OUTPUT_QUALITY = 92;
-const ORIGINAL_BLEND_OPACITY = 0.28;
-const BACKGROUND_CLEANUP_OPACITY = 0.9;
+const ENHANCED_FACE_OPACITY = 0.62;
+const BACKGROUND_CLEANUP_OPACITY = 0.55;
 const EXPRESSION_LINE_SOFTEN_OPACITY = 0.26;
 const DEFAULT_SMILE_INTENSITY = 3;
+
+type PortraitLayout = {
+  face: { cx: number; cy: number; rx: number; ry: number };
+  mouth: { y: number; leftX: number; rightX: number; radiusX: number; radiusY: number };
+  lines: {
+    leftNasolabial: [number, number, number, number, number, number, number, number];
+    rightNasolabial: [number, number, number, number, number, number, number, number];
+    leftMouth: [number, number, number, number, number, number, number, number];
+    rightMouth: [number, number, number, number, number, number, number, number];
+  };
+};
 
 // 에러 객체를 안전하게 문자열로 변환
 function safeMsg(e: unknown): string {
@@ -41,13 +52,53 @@ async function downloadOptionalImage(url: string): Promise<Buffer | null> {
   }
 }
 
+function getPortraitLayout(width: number, height: number): PortraitLayout {
+  const aspect = height / width;
+
+  if (aspect >= 1.15) {
+    return {
+      face: { cx: 0.5, cy: 0.34, rx: 0.19, ry: 0.23 },
+      mouth: { y: 0.43, leftX: 0.43, rightX: 0.57, radiusX: 0.08, radiusY: 0.055 },
+      lines: {
+        leftNasolabial: [0.46, 0.36, 0.42, 0.40, 0.42, 0.46, 0.45, 0.50],
+        rightNasolabial: [0.54, 0.36, 0.58, 0.40, 0.58, 0.46, 0.55, 0.50],
+        leftMouth: [0.44, 0.46, 0.40, 0.49, 0.42, 0.54, 0.46, 0.56],
+        rightMouth: [0.56, 0.46, 0.60, 0.49, 0.58, 0.54, 0.54, 0.56],
+      },
+    };
+  }
+
+  return {
+    face: { cx: 0.5, cy: 0.49, rx: 0.26, ry: 0.34 },
+    mouth: { y: 0.66, leftX: 0.38, rightX: 0.62, radiusX: 0.12, radiusY: 0.09 },
+    lines: {
+      leftNasolabial: [0.43, 0.55, 0.40, 0.60, 0.39, 0.66, 0.43, 0.71],
+      rightNasolabial: [0.57, 0.55, 0.60, 0.60, 0.61, 0.66, 0.57, 0.71],
+      leftMouth: [0.43, 0.68, 0.40, 0.72, 0.42, 0.77, 0.46, 0.80],
+      rightMouth: [0.57, 0.68, 0.60, 0.72, 0.58, 0.77, 0.54, 0.80],
+    },
+  };
+}
+
+function buildFaceBlendMask(width: number, height: number): Buffer {
+  const { face } = getPortraitLayout(width, height);
+
+  return Buffer.from(`
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+      <ellipse cx="${width * face.cx}" cy="${height * face.cy}" rx="${width * face.rx}" ry="${height * face.ry}" fill="white"/>
+    </svg>
+  `);
+}
+
 function buildBackgroundCleanupMask(width: number, height: number): Buffer {
+  const { face } = getPortraitLayout(width, height);
+
   return Buffer.from(`
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <mask id="cleanup-mask">
           <rect width="100%" height="100%" fill="white"/>
-          <ellipse cx="${width * 0.5}" cy="${height * 0.47}" rx="${width * 0.32}" ry="${height * 0.47}" fill="black"/>
+          <ellipse cx="${width * face.cx}" cy="${height * face.cy}" rx="${width * (face.rx + 0.08)}" ry="${height * (face.ry + 0.13)}" fill="black"/>
           <rect x="${width * 0.22}" y="${height * 0.74}" width="${width * 0.56}" height="${height * 0.26}" fill="black"/>
         </mask>
       </defs>
@@ -64,10 +115,10 @@ async function reduceBackgroundStrayHairs(image: Buffer): Promise<Buffer> {
     return image;
   }
 
-  // Clean only the outer background so nose, under-eye detail, hair mass, and shoulders stay sharp.
+  // Lighten only dark flyaway pixels in the outer background to avoid two-tone halos.
   const cleanedBackground = await sharp(image, { failOn: 'none' })
     .median(5)
-    .blur(1.7)
+    .blur(1.4)
     .ensureAlpha(BACKGROUND_CLEANUP_OPACITY)
     .png()
     .toBuffer();
@@ -77,7 +128,7 @@ async function reduceBackgroundStrayHairs(image: Buffer): Promise<Buffer> {
     .toBuffer();
 
   return sharp(image, { failOn: 'none' })
-    .composite([{ input: maskedCleanup, blend: 'over' }])
+    .composite([{ input: maskedCleanup, blend: 'lighten' }])
     .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
     .toBuffer();
 }
@@ -90,15 +141,17 @@ function normalizeSmileIntensity(value: string | null): 1 | 2 | 3 {
 
 function buildExpressionLineMask(width: number, height: number): Buffer {
   const strokeWidth = Math.max(18, width * 0.035);
+  const { lines } = getPortraitLayout(width, height);
+  const path = ([x1, y1, x2, y2, x3, y3, x4, y4]: PortraitLayout['lines']['leftNasolabial']) =>
+    `M ${width * x1} ${height * y1} C ${width * x2} ${height * y2}, ${width * x3} ${height * y3}, ${width * x4} ${height * y4}`;
 
   return Buffer.from(`
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
-      <rect width="100%" height="100%" fill="black"/>
       <g fill="none" stroke="white" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="0.92">
-        <path d="M ${width * 0.43} ${height * 0.55} C ${width * 0.40} ${height * 0.60}, ${width * 0.39} ${height * 0.66}, ${width * 0.43} ${height * 0.71}" />
-        <path d="M ${width * 0.57} ${height * 0.55} C ${width * 0.60} ${height * 0.60}, ${width * 0.61} ${height * 0.66}, ${width * 0.57} ${height * 0.71}" />
-        <path d="M ${width * 0.43} ${height * 0.68} C ${width * 0.40} ${height * 0.72}, ${width * 0.42} ${height * 0.77}, ${width * 0.46} ${height * 0.80}" />
-        <path d="M ${width * 0.57} ${height * 0.68} C ${width * 0.60} ${height * 0.72}, ${width * 0.58} ${height * 0.77}, ${width * 0.54} ${height * 0.80}" />
+        <path d="${path(lines.leftNasolabial)}" />
+        <path d="${path(lines.rightNasolabial)}" />
+        <path d="${path(lines.leftMouth)}" />
+        <path d="${path(lines.rightMouth)}" />
       </g>
     </svg>
   `);
@@ -131,12 +184,13 @@ async function applySubtleSmileLift(image: Buffer, smileIntensity: 1 | 2 | 3): P
     .toBuffer({ resolveWithObject: true });
   const { width, height, channels } = info;
   const output = Buffer.from(data);
+  const { mouth } = getPortraitLayout(width, height);
   const lift = height * (smileIntensity === 3 ? 0.026 : 0.016);
-  const radiusX = width * 0.12;
-  const radiusY = height * 0.09;
+  const radiusX = width * mouth.radiusX;
+  const radiusY = height * mouth.radiusY;
   const corners = [
-    { x: width * 0.38, y: height * 0.66 },
-    { x: width * 0.62, y: height * 0.66 },
+    { x: width * mouth.leftX, y: height * mouth.y },
+    { x: width * mouth.rightX, y: height * mouth.y },
   ];
 
   for (let y = 0; y < height; y++) {
@@ -197,31 +251,44 @@ async function postProcessRetouchOutput(
   original: Buffer | null,
   smileIntensity: 1 | 2 | 3
 ): Promise<Buffer> {
-  let processed = await sharp(output, { failOn: 'none' })
-    .rotate()
-    .toColorspace('srgb')
-    .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
-    .toBuffer();
-  const metadata = await sharp(processed, { failOn: 'none' }).metadata();
-
-  if (original && metadata.width && metadata.height) {
-    // Blend a little of the source portrait back in to suppress reconstruction artifacts.
-    const originalLayer = await sharp(original, { failOn: 'none' })
+  let processed: Buffer;
+  if (original) {
+    const base = await sharp(original, { failOn: 'none' })
       .rotate()
-      .resize({
-        width: metadata.width,
-        height: metadata.height,
-        fit: 'cover',
-      })
       .toColorspace('srgb')
-      .modulate({ brightness: 1.03, saturation: 0.98 })
-      .ensureAlpha(ORIGINAL_BLEND_OPACITY)
-      .png()
+      .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
       .toBuffer();
+    const metadata = await sharp(base, { failOn: 'none' }).metadata();
 
-    processed = await sharp(processed, { failOn: 'none' })
-      .composite([{ input: originalLayer, blend: 'over' }])
-      .modulate({ brightness: 1.03, saturation: 0.98 })
+    if (!metadata.width || !metadata.height) {
+      processed = base;
+    } else {
+      const enhancedFace = await sharp(output, { failOn: 'none' })
+        .rotate()
+        .resize({
+          width: metadata.width,
+          height: metadata.height,
+          fit: 'cover',
+        })
+        .toColorspace('srgb')
+        .ensureAlpha(ENHANCED_FACE_OPACITY)
+        .png()
+        .toBuffer();
+      const maskedFace = await sharp(enhancedFace, { failOn: 'none' })
+        .composite([{ input: buildFaceBlendMask(metadata.width, metadata.height), blend: 'dest-in' }])
+        .png()
+        .toBuffer();
+
+      processed = await sharp(base, { failOn: 'none' })
+        .composite([{ input: maskedFace, blend: 'over' }])
+        .modulate({ brightness: 1.03, saturation: 0.98 })
+        .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
+        .toBuffer();
+    }
+  } else {
+    processed = await sharp(output, { failOn: 'none' })
+      .rotate()
+      .toColorspace('srgb')
       .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
       .toBuffer();
   }
