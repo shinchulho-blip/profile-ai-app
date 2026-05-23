@@ -13,8 +13,9 @@ const JPEG_QUALITIES = [88, 82, 76, 70, 64, 58];
 const MAX_IMAGE_DIMENSIONS = [2200, 1800, 1400, 1200];
 const RETOUCH_OUTPUT_QUALITY = 92;
 const ORIGINAL_BLEND_OPACITY = 0.28;
-const BACKGROUND_CLEANUP_OPACITY = 0.7;
-const DEFAULT_SMILE_INTENSITY = 2;
+const BACKGROUND_CLEANUP_OPACITY = 0.9;
+const EXPRESSION_LINE_SOFTEN_OPACITY = 0.26;
+const DEFAULT_SMILE_INTENSITY = 3;
 
 // 에러 객체를 안전하게 문자열로 변환
 function safeMsg(e: unknown): string {
@@ -46,8 +47,8 @@ function buildBackgroundCleanupMask(width: number, height: number): Buffer {
       <defs>
         <mask id="cleanup-mask">
           <rect width="100%" height="100%" fill="white"/>
-          <ellipse cx="${width * 0.5}" cy="${height * 0.46}" rx="${width * 0.37}" ry="${height * 0.48}" fill="black"/>
-          <rect x="${width * 0.24}" y="${height * 0.74}" width="${width * 0.52}" height="${height * 0.26}" fill="black"/>
+          <ellipse cx="${width * 0.5}" cy="${height * 0.47}" rx="${width * 0.32}" ry="${height * 0.47}" fill="black"/>
+          <rect x="${width * 0.22}" y="${height * 0.74}" width="${width * 0.56}" height="${height * 0.26}" fill="black"/>
         </mask>
       </defs>
       <rect width="100%" height="100%" fill="white" mask="url(#cleanup-mask)"/>
@@ -65,8 +66,8 @@ async function reduceBackgroundStrayHairs(image: Buffer): Promise<Buffer> {
 
   // Clean only the outer background so nose, under-eye detail, hair mass, and shoulders stay sharp.
   const cleanedBackground = await sharp(image, { failOn: 'none' })
-    .median(3)
-    .blur(1.1)
+    .median(5)
+    .blur(1.7)
     .ensureAlpha(BACKGROUND_CLEANUP_OPACITY)
     .png()
     .toBuffer();
@@ -85,6 +86,22 @@ function normalizeSmileIntensity(value: string | null): 1 | 2 | 3 {
   const parsed = Number(value);
   if (parsed === 1 || parsed === 2 || parsed === 3) return parsed;
   return DEFAULT_SMILE_INTENSITY;
+}
+
+function buildExpressionLineMask(width: number, height: number): Buffer {
+  const strokeWidth = Math.max(18, width * 0.035);
+
+  return Buffer.from(`
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100%" height="100%" fill="black"/>
+      <g fill="none" stroke="white" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="0.92">
+        <path d="M ${width * 0.43} ${height * 0.55} C ${width * 0.40} ${height * 0.60}, ${width * 0.39} ${height * 0.66}, ${width * 0.43} ${height * 0.71}" />
+        <path d="M ${width * 0.57} ${height * 0.55} C ${width * 0.60} ${height * 0.60}, ${width * 0.61} ${height * 0.66}, ${width * 0.57} ${height * 0.71}" />
+        <path d="M ${width * 0.43} ${height * 0.68} C ${width * 0.40} ${height * 0.72}, ${width * 0.42} ${height * 0.77}, ${width * 0.46} ${height * 0.80}" />
+        <path d="M ${width * 0.57} ${height * 0.68} C ${width * 0.60} ${height * 0.72}, ${width * 0.58} ${height * 0.77}, ${width * 0.54} ${height * 0.80}" />
+      </g>
+    </svg>
+  `);
 }
 
 function sampleBilinear(data: Buffer, width: number, height: number, channels: number, x: number, y: number, channel: number): number {
@@ -114,12 +131,12 @@ async function applySubtleSmileLift(image: Buffer, smileIntensity: 1 | 2 | 3): P
     .toBuffer({ resolveWithObject: true });
   const { width, height, channels } = info;
   const output = Buffer.from(data);
-  const lift = height * (smileIntensity === 3 ? 0.014 : 0.008);
-  const radiusX = width * 0.09;
-  const radiusY = height * 0.07;
+  const lift = height * (smileIntensity === 3 ? 0.026 : 0.016);
+  const radiusX = width * 0.12;
+  const radiusY = height * 0.09;
   const corners = [
-    { x: width * 0.39, y: height * 0.65 },
-    { x: width * 0.61, y: height * 0.65 },
+    { x: width * 0.38, y: height * 0.66 },
+    { x: width * 0.62, y: height * 0.66 },
   ];
 
   for (let y = 0; y < height; y++) {
@@ -145,6 +162,32 @@ async function applySubtleSmileLift(image: Buffer, smileIntensity: 1 | 2 | 3): P
   }
 
   return sharp(output, { raw: { width, height, channels } })
+    .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
+    .toBuffer();
+}
+
+async function softenNoseAndMouthLines(image: Buffer): Promise<Buffer> {
+  const metadata = await sharp(image, { failOn: 'none' }).metadata();
+  const { width, height } = metadata;
+
+  if (!width || !height) {
+    return image;
+  }
+
+  const softenedLines = await sharp(image, { failOn: 'none' })
+    .median(3)
+    .blur(0.7)
+    .modulate({ brightness: 1.025, saturation: 0.99 })
+    .ensureAlpha(EXPRESSION_LINE_SOFTEN_OPACITY)
+    .png()
+    .toBuffer();
+  const maskedLines = await sharp(softenedLines, { failOn: 'none' })
+    .composite([{ input: buildExpressionLineMask(width, height), blend: 'dest-in' }])
+    .png()
+    .toBuffer();
+
+  return sharp(image, { failOn: 'none' })
+    .composite([{ input: maskedLines, blend: 'over' }])
     .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
     .toBuffer();
 }
@@ -184,7 +227,8 @@ async function postProcessRetouchOutput(
   }
 
   const withSmile = await applySubtleSmileLift(processed, smileIntensity);
-  return reduceBackgroundStrayHairs(withSmile);
+  const withSofterLines = await softenNoseAndMouthLines(withSmile);
+  return reduceBackgroundStrayHairs(withSofterLines);
 }
 
 async function makeCloudinarySafeImage(

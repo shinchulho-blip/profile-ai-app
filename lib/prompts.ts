@@ -16,7 +16,7 @@ export interface RetouchOptions {
 export const DEFAULT_OPTIONS: RetouchOptions = {
   strength: 'standard',
   skinIntensity: 3,
-  smileIntensity: 2, // 중장년 프로필 기본값: 표정만 살짝 밝게
+  smileIntensity: 3, // 중장년 프로필 기본값: 표정을 조금 더 밝게
   backgroundColor: 'gray',
   brightness: 0,
   cropRatio: '1:1',
