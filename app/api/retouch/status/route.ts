@@ -14,7 +14,8 @@ const MAX_IMAGE_DIMENSIONS = [2200, 1800, 1400, 1200];
 const RETOUCH_OUTPUT_QUALITY = 92;
 const ENHANCED_FACE_OPACITY = 0.62;
 const BACKGROUND_CLEANUP_OPACITY = 0.55;
-const EXPRESSION_LINE_SOFTEN_OPACITY = 0.52;
+const EXPRESSION_LINE_SMOOTH_OPACITY = 0.38;
+const EXPRESSION_LINE_LIGHTEN_OPACITY = 0.72;
 const DEFAULT_SMILE_INTENSITY = 3;
 
 type PortraitLayout = {
@@ -61,10 +62,10 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
       face: { cx: 0.5, cy: 0.32, rx: 0.17, ry: 0.18 },
       mouth: { y: 0.43, leftX: 0.43, rightX: 0.57, radiusX: 0.08, radiusY: 0.055 },
       wrinkleSpots: [
-        { cx: 0.43, cy: 0.43, rx: 0.055, ry: 0.11 },
-        { cx: 0.57, cy: 0.43, rx: 0.055, ry: 0.11 },
-        { cx: 0.43, cy: 0.51, rx: 0.06, ry: 0.055 },
-        { cx: 0.57, cy: 0.51, rx: 0.06, ry: 0.055 },
+        { cx: 0.42, cy: 0.43, rx: 0.075, ry: 0.14 },
+        { cx: 0.58, cy: 0.43, rx: 0.075, ry: 0.14 },
+        { cx: 0.42, cy: 0.52, rx: 0.085, ry: 0.07 },
+        { cx: 0.58, cy: 0.52, rx: 0.085, ry: 0.07 },
       ],
       lines: {
         leftNasolabial: [0.46, 0.36, 0.42, 0.40, 0.42, 0.46, 0.45, 0.50],
@@ -79,10 +80,10 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
     face: { cx: 0.5, cy: 0.45, rx: 0.21, ry: 0.25 },
     mouth: { y: 0.66, leftX: 0.38, rightX: 0.62, radiusX: 0.12, radiusY: 0.09 },
     wrinkleSpots: [
-      { cx: 0.42, cy: 0.62, rx: 0.075, ry: 0.14 },
-      { cx: 0.58, cy: 0.62, rx: 0.075, ry: 0.14 },
-      { cx: 0.42, cy: 0.74, rx: 0.08, ry: 0.07 },
-      { cx: 0.58, cy: 0.74, rx: 0.08, ry: 0.07 },
+      { cx: 0.41, cy: 0.62, rx: 0.095, ry: 0.17 },
+      { cx: 0.59, cy: 0.62, rx: 0.095, ry: 0.17 },
+      { cx: 0.41, cy: 0.75, rx: 0.10, ry: 0.09 },
+      { cx: 0.59, cy: 0.75, rx: 0.10, ry: 0.09 },
     ],
     lines: {
       leftNasolabial: [0.43, 0.55, 0.40, 0.60, 0.39, 0.66, 0.43, 0.71],
@@ -153,20 +154,20 @@ function normalizeSmileIntensity(value: string | null): 1 | 2 | 3 {
 }
 
 function buildExpressionLineMask(width: number, height: number): Buffer {
-  const strokeWidth = Math.max(26, width * 0.055);
+  const strokeWidth = Math.max(34, width * 0.075);
   const { lines, wrinkleSpots } = getPortraitLayout(width, height);
   const path = ([x1, y1, x2, y2, x3, y3, x4, y4]: PortraitLayout['lines']['leftNasolabial']) =>
     `M ${width * x1} ${height * y1} C ${width * x2} ${height * y2}, ${width * x3} ${height * y3}, ${width * x4} ${height * y4}`;
   const ellipses = wrinkleSpots
     .map(({ cx, cy, rx, ry }) =>
-      `<ellipse cx="${width * cx}" cy="${height * cy}" rx="${width * rx}" ry="${height * ry}" fill="white" opacity="0.58"/>`
+      `<ellipse cx="${width * cx}" cy="${height * cy}" rx="${width * rx}" ry="${height * ry}" fill="white" opacity="0.76"/>`
     )
     .join('');
 
   return Buffer.from(`
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
       ${ellipses}
-      <g fill="none" stroke="white" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="0.9">
+      <g fill="none" stroke="white" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="0.96">
         <path d="${path(lines.leftNasolabial)}" />
         <path d="${path(lines.rightNasolabial)}" />
         <path d="${path(lines.leftMouth)}" />
@@ -184,20 +185,36 @@ async function softenNoseAndMouthLines(image: Buffer): Promise<Buffer> {
     return image;
   }
 
-  const softenedLines = await sharp(image, { failOn: 'none' })
-    .median(5)
-    .blur(1.1)
-    .modulate({ brightness: 1.08, saturation: 0.98 })
-    .ensureAlpha(EXPRESSION_LINE_SOFTEN_OPACITY)
+  const lineMask = buildExpressionLineMask(width, height);
+  const smoothedLines = await sharp(image, { failOn: 'none' })
+    .median(7)
+    .blur(1.8)
+    .modulate({ brightness: 1.03, saturation: 0.98 })
+    .ensureAlpha(EXPRESSION_LINE_SMOOTH_OPACITY)
     .png()
     .toBuffer();
-  const maskedLines = await sharp(softenedLines, { failOn: 'none' })
-    .composite([{ input: buildExpressionLineMask(width, height), blend: 'dest-in' }])
+  const maskedSmoothedLines = await sharp(smoothedLines, { failOn: 'none' })
+    .composite([{ input: lineMask, blend: 'dest-in' }])
+    .png()
+    .toBuffer();
+  const smoothedImage = await sharp(image, { failOn: 'none' })
+    .composite([{ input: maskedSmoothedLines, blend: 'over' }])
+    .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
+    .toBuffer();
+  const lightenedLines = await sharp(smoothedImage, { failOn: 'none' })
+    .median(5)
+    .blur(1.2)
+    .modulate({ brightness: 1.16, saturation: 0.98 })
+    .ensureAlpha(EXPRESSION_LINE_LIGHTEN_OPACITY)
+    .png()
+    .toBuffer();
+  const maskedLightenedLines = await sharp(lightenedLines, { failOn: 'none' })
+    .composite([{ input: lineMask, blend: 'dest-in' }])
     .png()
     .toBuffer();
 
-  return sharp(image, { failOn: 'none' })
-    .composite([{ input: maskedLines, blend: 'lighten' }])
+  return sharp(smoothedImage, { failOn: 'none' })
+    .composite([{ input: maskedLightenedLines, blend: 'lighten' }])
     .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
     .toBuffer();
 }
