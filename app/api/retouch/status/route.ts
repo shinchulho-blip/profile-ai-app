@@ -191,25 +191,49 @@ async function downloadImage(url: string): Promise<Buffer> {
   return Buffer.from(await response.arrayBuffer());
 }
 
-async function makeCloudinarySafeImage(url: string, strength: 'natural' | 'standard' | 'polished'): Promise<Buffer> {
-  const image = await downloadImage(url);
-  const normalized = await sharp(image, { failOn: 'none' })
-    .rotate()
-    .toColorspace('srgb')
-    .jpeg({ quality: JPEG_QUALITIES[0], mozjpeg: true })
+function buildNoseRestoreMask(width: number, height: number): Buffer {
+  const { noseBridge, noseBase } = getPortraitLayout(width, height);
+  return Buffer.from(`
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+      <ellipse cx="${width * noseBridge.cx}" cy="${height * noseBridge.cy}" rx="${width * noseBridge.rx}" ry="${height * noseBridge.ry}" fill="white" />
+      <ellipse cx="${width * noseBase.cx}" cy="${height * noseBase.cy}" rx="${width * noseBase.rx}" ry="${height * noseBase.ry}" fill="white" />
+    </svg>
+  `);
+}
+
+async function restoreOriginalNose(
+  processedImage: Buffer,
+  originalImage: Buffer,
+  width: number,
+  height: number
+): Promise<Buffer> {
+  const noseMask = buildNoseRestoreMask(width, height);
+  const blurRadius = Math.max(12, Math.round(width * 0.015));
+  const featheredNoseMask = await sharp(noseMask, { failOn: 'none' })
+    .blur(blurRadius)
+    .png()
     .toBuffer();
 
-  const config = RETOUCH_STRENGTHS[strength] ?? RETOUCH_STRENGTHS.standard;
-  const processed = await softenNoseAndMouthLines(normalized, config.smooth, config.lighten);
+  const originalNose = await sharp(originalImage, { failOn: 'none' })
+    .composite([{ input: featheredNoseMask, blend: 'dest-in' }])
+    .png()
+    .toBuffer();
 
-  if (processed.byteLength <= TARGET_UPLOAD_BYTES) {
-    return processed;
+  return sharp(processedImage, { failOn: 'none' })
+    .composite([{ input: originalNose, blend: 'over' }])
+    .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
+    .toBuffer();
+}
+
+async function compressIfNeeded(image: Buffer): Promise<Buffer> {
+  if (image.byteLength <= TARGET_UPLOAD_BYTES) {
+    return image;
   }
 
   let fallback: Buffer | null = null;
   for (const maxDimension of MAX_IMAGE_DIMENSIONS) {
     for (const quality of JPEG_QUALITIES) {
-      const compressed = await sharp(processed, { failOn: 'none' })
+      const compressed = await sharp(image, { failOn: 'none' })
         .resize({
           width: maxDimension,
           height: maxDimension,
@@ -231,6 +255,40 @@ async function makeCloudinarySafeImage(url: string, strength: 'natural' | 'stand
   }
 
   throw new Error('AI 결과 이미지가 Cloudinary 업로드 제한보다 큽니다. 더 작은 원본으로 다시 시도해 주세요.');
+}
+
+async function makeCloudinarySafeImage(
+  url: string,
+  originalUrl: string,
+  strength: 'natural' | 'standard' | 'polished'
+): Promise<Buffer> {
+  const image = await downloadImage(url);
+  const originalImage = await downloadImage(originalUrl);
+
+  const normalized = await sharp(image, { failOn: 'none' })
+    .rotate()
+    .toColorspace('srgb')
+    .jpeg({ quality: JPEG_QUALITIES[0], mozjpeg: true })
+    .toBuffer();
+
+  const normalizedOriginal = await sharp(originalImage, { failOn: 'none' })
+    .rotate()
+    .toColorspace('srgb')
+    .jpeg({ quality: JPEG_QUALITIES[0], mozjpeg: true })
+    .toBuffer();
+
+  const metadata = await sharp(normalized, { failOn: 'none' }).metadata();
+  const { width, height } = metadata;
+
+  const config = RETOUCH_STRENGTHS[strength] ?? RETOUCH_STRENGTHS.standard;
+  const processed = await softenNoseAndMouthLines(normalized, config.smooth, config.lighten);
+
+  if (width && height) {
+    const finalProcessed = await restoreOriginalNose(processed, normalizedOriginal, width, height);
+    return compressIfNeeded(finalProcessed);
+  }
+
+  return compressIfNeeded(processed);
 }
 
 function uploadImageBuffer(
@@ -311,7 +369,11 @@ export async function GET(req: NextRequest) {
       const enhancedFolder = getEnhancedFolder(projectName);
       const baseName = (filename || publicId.split('/').pop() || 'photo').replace(/\.[^.]+$/, '');
       const strength = (searchParams.get('strength') ?? 'standard') as 'natural' | 'standard' | 'polished';
-      const uploadImage = await makeCloudinarySafeImage(outputUrl as string, strength);
+      
+      const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ?? '';
+      const originalUrl = `https://res.cloudinary.com/${cloudName}/image/upload/a_auto,q_auto:best,f_jpg/${publicId}`;
+
+      const uploadImage = await makeCloudinarySafeImage(outputUrl as string, originalUrl, strength);
       const uploaded = await uploadImageBuffer(uploadImage, {
         folder: enhancedFolder,
         publicId: `natural-profile-retouch-${baseName}`,
