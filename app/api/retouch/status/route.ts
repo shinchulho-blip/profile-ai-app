@@ -39,6 +39,7 @@ type PortraitLayout = {
     leftMouth: [number, number, number, number, number, number, number, number];
     rightMouth: [number, number, number, number, number, number, number, number];
   };
+  noseExclude: { cx: number; cy: number; rx: number; ry: number };
 };
 
 function getPortraitLayout(width: number, height: number): PortraitLayout {
@@ -60,6 +61,7 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
         leftMouth: [0.44, 0.46, 0.40, 0.49, 0.42, 0.54, 0.46, 0.56],
         rightMouth: [0.56, 0.46, 0.60, 0.49, 0.58, 0.54, 0.54, 0.56],
       },
+      noseExclude: { cx: 0.5, cy: 0.36, rx: 0.035, ry: 0.08 },
     };
   }
 
@@ -78,12 +80,13 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
       leftMouth: [0.43, 0.68, 0.40, 0.72, 0.42, 0.77, 0.46, 0.80],
       rightMouth: [0.57, 0.68, 0.60, 0.72, 0.58, 0.77, 0.54, 0.80],
     },
+    noseExclude: { cx: 0.5, cy: 0.52, rx: 0.05, ry: 0.11 },
   };
 }
 
 function buildExpressionLineMask(width: number, height: number): Buffer {
   const strokeWidth = Math.max(34, width * 0.075);
-  const { lines, wrinkleSpots } = getPortraitLayout(width, height);
+  const { lines, wrinkleSpots, noseExclude } = getPortraitLayout(width, height);
   const path = ([x1, y1, x2, y2, x3, y3, x4, y4]: PortraitLayout['lines']['leftNasolabial']) =>
     `M ${width * x1} ${height * y1} C ${width * x2} ${height * y2}, ${width * x3} ${height * y3}, ${width * x4} ${height * y4}`;
   const ellipses = wrinkleSpots
@@ -94,12 +97,20 @@ function buildExpressionLineMask(width: number, height: number): Buffer {
 
   return Buffer.from(`
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
-      ${ellipses}
-      <g fill="none" stroke="white" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="0.96">
-        <path d="${path(lines.leftNasolabial)}" />
-        <path d="${path(lines.rightNasolabial)}" />
-        <path d="${path(lines.leftMouth)}" />
-        <path d="${path(lines.rightMouth)}" />
+      <defs>
+        <mask id="exclude-nose-mask">
+          <rect x="0" y="0" width="${width}" height="${height}" fill="white" />
+          <ellipse cx="${width * noseExclude.cx}" cy="${height * noseExclude.cy}" rx="${width * noseExclude.rx}" ry="${height * noseExclude.ry}" fill="black" />
+        </mask>
+      </defs>
+      <g mask="url(#exclude-nose-mask)">
+        ${ellipses}
+        <g fill="none" stroke="white" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="0.96">
+          <path d="${path(lines.leftNasolabial)}" />
+          <path d="${path(lines.rightNasolabial)}" />
+          <path d="${path(lines.leftMouth)}" />
+          <path d="${path(lines.rightMouth)}" />
+        </g>
       </g>
     </svg>
   `);
@@ -118,6 +129,14 @@ async function softenNoseAndMouthLines(
   }
 
   const lineMask = buildExpressionLineMask(width, height);
+  
+  // Feather the mask using sharp to ensure perfectly soft transitions and completely natural edges
+  const blurRadius = Math.max(12, Math.round(width * 0.015));
+  const featheredMask = await sharp(lineMask, { failOn: 'none' })
+    .blur(blurRadius)
+    .png()
+    .toBuffer();
+
   const smoothedLines = await sharp(image, { failOn: 'none' })
     .median(7)
     .blur(1.8)
@@ -126,7 +145,7 @@ async function softenNoseAndMouthLines(
     .png()
     .toBuffer();
   const maskedSmoothedLines = await sharp(smoothedLines, { failOn: 'none' })
-    .composite([{ input: lineMask, blend: 'dest-in' }])
+    .composite([{ input: featheredMask, blend: 'dest-in' }])
     .png()
     .toBuffer();
   const smoothedImage = await sharp(image, { failOn: 'none' })
@@ -141,7 +160,7 @@ async function softenNoseAndMouthLines(
     .png()
     .toBuffer();
   const maskedLightenedLines = await sharp(lightenedLines, { failOn: 'none' })
-    .composite([{ input: lineMask, blend: 'dest-in' }])
+    .composite([{ input: featheredMask, blend: 'dest-in' }])
     .png()
     .toBuffer();
 
