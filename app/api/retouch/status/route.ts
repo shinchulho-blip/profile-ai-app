@@ -12,6 +12,128 @@ const TARGET_UPLOAD_BYTES = 9 * 1024 * 1024;
 const JPEG_QUALITIES = [92, 88, 82, 76, 70, 64];
 const MAX_IMAGE_DIMENSIONS = [1800, 1600, 1400, 1200];
 
+const RETOUCH_OUTPUT_QUALITY = 92;
+const EXPRESSION_LINE_SMOOTH_OPACITY = 0.38;
+const EXPRESSION_LINE_LIGHTEN_OPACITY = 0.72;
+
+type PortraitLayout = {
+  face: { cx: number; cy: number; rx: number; ry: number };
+  mouth: { y: number; leftX: number; rightX: number; radiusX: number; radiusY: number };
+  wrinkleSpots: Array<{ cx: number; cy: number; rx: number; ry: number }>;
+  lines: {
+    leftNasolabial: [number, number, number, number, number, number, number, number];
+    rightNasolabial: [number, number, number, number, number, number, number, number];
+    leftMouth: [number, number, number, number, number, number, number, number];
+    rightMouth: [number, number, number, number, number, number, number, number];
+  };
+};
+
+function getPortraitLayout(width: number, height: number): PortraitLayout {
+  const aspect = height / width;
+
+  if (aspect >= 1.15) {
+    return {
+      face: { cx: 0.5, cy: 0.32, rx: 0.17, ry: 0.18 },
+      mouth: { y: 0.43, leftX: 0.43, rightX: 0.57, radiusX: 0.08, radiusY: 0.055 },
+      wrinkleSpots: [
+        { cx: 0.42, cy: 0.43, rx: 0.075, ry: 0.14 },
+        { cx: 0.58, cy: 0.43, rx: 0.075, ry: 0.14 },
+        { cx: 0.42, cy: 0.52, rx: 0.085, ry: 0.07 },
+        { cx: 0.58, cy: 0.52, rx: 0.085, ry: 0.07 },
+      ],
+      lines: {
+        leftNasolabial: [0.46, 0.36, 0.42, 0.40, 0.42, 0.46, 0.45, 0.50],
+        rightNasolabial: [0.54, 0.36, 0.58, 0.40, 0.58, 0.46, 0.55, 0.50],
+        leftMouth: [0.44, 0.46, 0.40, 0.49, 0.42, 0.54, 0.46, 0.56],
+        rightMouth: [0.56, 0.46, 0.60, 0.49, 0.58, 0.54, 0.54, 0.56],
+      },
+    };
+  }
+
+  return {
+    face: { cx: 0.5, cy: 0.45, rx: 0.21, ry: 0.25 },
+    mouth: { y: 0.66, leftX: 0.38, rightX: 0.62, radiusX: 0.12, radiusY: 0.09 },
+    wrinkleSpots: [
+      { cx: 0.41, cy: 0.62, rx: 0.095, ry: 0.17 },
+      { cx: 0.59, cy: 0.62, rx: 0.095, ry: 0.17 },
+      { cx: 0.41, cy: 0.75, rx: 0.10, ry: 0.09 },
+      { cx: 0.59, cy: 0.75, rx: 0.10, ry: 0.09 },
+    ],
+    lines: {
+      leftNasolabial: [0.43, 0.55, 0.40, 0.60, 0.39, 0.66, 0.43, 0.71],
+      rightNasolabial: [0.57, 0.55, 0.60, 0.60, 0.61, 0.66, 0.57, 0.71],
+      leftMouth: [0.43, 0.68, 0.40, 0.72, 0.42, 0.77, 0.46, 0.80],
+      rightMouth: [0.57, 0.68, 0.60, 0.72, 0.58, 0.77, 0.54, 0.80],
+    },
+  };
+}
+
+function buildExpressionLineMask(width: number, height: number): Buffer {
+  const strokeWidth = Math.max(34, width * 0.075);
+  const { lines, wrinkleSpots } = getPortraitLayout(width, height);
+  const path = ([x1, y1, x2, y2, x3, y3, x4, y4]: PortraitLayout['lines']['leftNasolabial']) =>
+    `M ${width * x1} ${height * y1} C ${width * x2} ${height * y2}, ${width * x3} ${height * y3}, ${width * x4} ${height * y4}`;
+  const ellipses = wrinkleSpots
+    .map(({ cx, cy, rx, ry }) =>
+      `<ellipse cx="${width * cx}" cy="${height * cy}" rx="${width * rx}" ry="${height * ry}" fill="white" opacity="0.76"/>`
+    )
+    .join('');
+
+  return Buffer.from(`
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+      ${ellipses}
+      <g fill="none" stroke="white" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="0.96">
+        <path d="${path(lines.leftNasolabial)}" />
+        <path d="${path(lines.rightNasolabial)}" />
+        <path d="${path(lines.leftMouth)}" />
+        <path d="${path(lines.rightMouth)}" />
+      </g>
+    </svg>
+  `);
+}
+
+async function softenNoseAndMouthLines(image: Buffer): Promise<Buffer> {
+  const metadata = await sharp(image, { failOn: 'none' }).metadata();
+  const { width, height } = metadata;
+
+  if (!width || !height) {
+    return image;
+  }
+
+  const lineMask = buildExpressionLineMask(width, height);
+  const smoothedLines = await sharp(image, { failOn: 'none' })
+    .median(7)
+    .blur(1.8)
+    .modulate({ brightness: 1.03, saturation: 0.98 })
+    .ensureAlpha(EXPRESSION_LINE_SMOOTH_OPACITY)
+    .png()
+    .toBuffer();
+  const maskedSmoothedLines = await sharp(smoothedLines, { failOn: 'none' })
+    .composite([{ input: lineMask, blend: 'dest-in' }])
+    .png()
+    .toBuffer();
+  const smoothedImage = await sharp(image, { failOn: 'none' })
+    .composite([{ input: maskedSmoothedLines, blend: 'over' }])
+    .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
+    .toBuffer();
+  const lightenedLines = await sharp(smoothedImage, { failOn: 'none' })
+    .median(5)
+    .blur(1.2)
+    .modulate({ brightness: 1.16, saturation: 0.98 })
+    .ensureAlpha(EXPRESSION_LINE_LIGHTEN_OPACITY)
+    .png()
+    .toBuffer();
+  const maskedLightenedLines = await sharp(lightenedLines, { failOn: 'none' })
+    .composite([{ input: lineMask, blend: 'dest-in' }])
+    .png()
+    .toBuffer();
+
+  return sharp(smoothedImage, { failOn: 'none' })
+    .composite([{ input: maskedLightenedLines, blend: 'lighten' }])
+    .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
+    .toBuffer();
+}
+
 function safeMsg(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
@@ -35,14 +157,16 @@ async function makeCloudinarySafeImage(url: string): Promise<Buffer> {
     .jpeg({ quality: JPEG_QUALITIES[0], mozjpeg: true })
     .toBuffer();
 
-  if (normalized.byteLength <= TARGET_UPLOAD_BYTES) {
-    return normalized;
+  const processed = await softenNoseAndMouthLines(normalized);
+
+  if (processed.byteLength <= TARGET_UPLOAD_BYTES) {
+    return processed;
   }
 
   let fallback: Buffer | null = null;
   for (const maxDimension of MAX_IMAGE_DIMENSIONS) {
     for (const quality of JPEG_QUALITIES) {
-      const compressed = await sharp(normalized, { failOn: 'none' })
+      const compressed = await sharp(processed, { failOn: 'none' })
         .resize({
           width: maxDimension,
           height: maxDimension,
