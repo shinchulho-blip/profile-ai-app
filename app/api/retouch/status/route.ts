@@ -11,6 +11,7 @@ const CLOUDINARY_UPLOAD_LIMIT_BYTES = 10 * 1024 * 1024;
 const TARGET_UPLOAD_BYTES = 9 * 1024 * 1024;
 const JPEG_QUALITIES = [88, 82, 76, 70, 64, 58];
 const MAX_IMAGE_DIMENSIONS = [2200, 1800, 1400, 1200];
+const MAX_PROCESS_DIMENSION = 1400;
 const RETOUCH_OUTPUT_QUALITY = 92;
 const ENHANCED_FACE_OPACITY = 0.62;
 const BACKGROUND_CLEANUP_OPACITY = 0.55;
@@ -122,29 +123,8 @@ function buildBackgroundCleanupMask(width: number, height: number): Buffer {
 }
 
 async function reduceBackgroundStrayHairs(image: Buffer): Promise<Buffer> {
-  const metadata = await sharp(image, { failOn: 'none' }).metadata();
-  const { width, height } = metadata;
-
-  if (!width || !height) {
-    return image;
-  }
-
-  // Lighten only dark flyaway pixels in the outer background to avoid two-tone halos.
-  const cleanedBackground = await sharp(image, { failOn: 'none' })
-    .median(5)
-    .blur(1.4)
-    .ensureAlpha(BACKGROUND_CLEANUP_OPACITY)
-    .png()
-    .toBuffer();
-  const maskedCleanup = await sharp(cleanedBackground, { failOn: 'none' })
-    .composite([{ input: buildBackgroundCleanupMask(width, height), blend: 'dest-in' }])
-    .png()
-    .toBuffer();
-
-  return sharp(image, { failOn: 'none' })
-    .composite([{ input: maskedCleanup, blend: 'lighten' }])
-    .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
-    .toBuffer();
+  // Disabled for stability: aggressive background cleanup caused halos and slow status responses.
+  return image;
 }
 
 function normalizeSmileIntensity(value: string | null): 1 | 2 | 3 {
@@ -228,6 +208,12 @@ async function postProcessRetouchOutput(
   if (original) {
     const base = await sharp(original, { failOn: 'none' })
       .rotate()
+      .resize({
+        width: MAX_PROCESS_DIMENSION,
+        height: MAX_PROCESS_DIMENSION,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
       .toColorspace('srgb')
       .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
       .toBuffer();
@@ -261,6 +247,12 @@ async function postProcessRetouchOutput(
   } else {
     processed = await sharp(output, { failOn: 'none' })
       .rotate()
+      .resize({
+        width: MAX_PROCESS_DIMENSION,
+        height: MAX_PROCESS_DIMENSION,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
       .toColorspace('srgb')
       .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
       .toBuffer();

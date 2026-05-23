@@ -82,7 +82,9 @@ export default function PhotoCard({
           error?: string;
         };
         try { statusData = JSON.parse(statusText); }
-        catch { throw new Error("상태 확인 중 오류가 발생했습니다."); }
+        catch {
+          throw new Error(`상태 확인 서버 응답 오류 (${statusRes.status}). 잠시 후 다시 시도해 주세요.`);
+        }
 
         if (!statusData.success) throw new Error(statusData.error ?? "AI 처리 실패");
 
