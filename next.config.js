@@ -9,7 +9,7 @@ const nextConfig = {
     ],
   },
   // archiver 등 Node.js 전용 패키지가 서버 번들에 포함되도록 설정
-  serverExternalPackages: ['cloudinary', 'archiver'],
+  serverExternalPackages: ['cloudinary', 'archiver', 'sharp'],
 }
 
 module.exports = nextConfig
