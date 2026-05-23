@@ -112,12 +112,12 @@ export default function ProjectPage() {
     }
   };
 
-  // ── 전체 AI 보정 (1장씩 순차 처리)
+  // ── 전체 자연 프로필 보정 (1장씩 순차 처리)
   const handleEnhanceAll = async () => {
     const toEnhance = photos.filter((p) => !p.enhancedUrl);
     if (toEnhance.length === 0) return;
     setEnhancingAll(true);
-    setStatusMsg(`0 / ${toEnhance.length}장 AI 보정 중... (장당 20~45초 소요)`);
+    setStatusMsg(`0 / ${toEnhance.length}장 자연 프로필 보정 중... (장당 20~45초 소요)`);
 
     let done = 0;
     for (const photo of toEnhance) {
@@ -134,12 +134,12 @@ export default function ProjectPage() {
         });
       } catch { /* 개별 실패 무시 */ }
       done++;
-      setStatusMsg(`${done} / ${toEnhance.length}장 AI 보정 완료...`);
+      setStatusMsg(`${done} / ${toEnhance.length}장 프로필 보정 완료...`);
     }
 
     await fetchPhotos();
     setEnhancingAll(false);
-    setStatusMsg(`✓ ${done}장 AI 보정 완료! 각 카드의 before/after를 확인하세요.`);
+    setStatusMsg(`✓ ${done}장 프로필 보정 완료! 각 카드의 before/after를 확인하세요.`);
     setTimeout(() => setStatusMsg(null), 5000);
   };
 
@@ -257,7 +257,7 @@ export default function ProjectPage() {
         {/* ── 일괄 작업 컨트롤 ─────────────────────────── */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
           <div className="flex flex-wrap items-center gap-3">
-            {/* 전체 AI 보정 */}
+            {/* 전체 자연 프로필 보정 */}
             <button
               id="enhance-all-btn"
               onClick={handleEnhanceAll}
@@ -265,7 +265,7 @@ export default function ProjectPage() {
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)" }}
             >
-              {enhancingAll ? <><Loader2 className="w-4 h-4 animate-spin" />AI 보정 중...</> : <><Sparkles className="w-4 h-4" />AI 전체 보정 ({pendingCount}장)</>}
+              {enhancingAll ? <><Loader2 className="w-4 h-4 animate-spin" />프로필 보정 중...</> : <><Sparkles className="w-4 h-4" />전체 자연 보정 ({pendingCount}장)</>}
             </button>
 
             <div className="h-6 w-px bg-gray-200 hidden sm:block" />

@@ -13,7 +13,7 @@ export default function BeforeAfterSlider({
   beforeUrl,
   afterUrl,
   beforeLabel = "원본",
-  afterLabel  = "AI 보정",
+  afterLabel  = "프로필 보정",
 }: BeforeAfterSliderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [sliderX, setSliderX] = useState(50); // 0~100 퍼센트

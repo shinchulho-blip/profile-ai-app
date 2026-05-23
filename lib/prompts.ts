@@ -14,9 +14,9 @@ export interface RetouchOptions {
 
 // ── 기본값 ──────────────────────────────────────────────────
 export const DEFAULT_OPTIONS: RetouchOptions = {
-  strength: 'standard',
+  strength: 'natural',
   skinIntensity: 3,
-  smileIntensity: 3, // 중장년 프로필 기본값: 표정을 조금 더 밝게
+  smileIntensity: 2,
   backgroundColor: 'gray',
   brightness: 0,
   cropRatio: '1:1',
@@ -32,18 +32,18 @@ const BG_COLOR_PROMPTS: Record<RetouchOptions['backgroundColor'], string> = {
 
 // ── 피부 보정 강도 설명 ─────────────────────────────────────
 function getSkinRetouch(intensity: number): string {
-  if (intensity <= 1) return 'very minimal skin retouching, keep all natural skin texture and pores';
-  if (intensity === 2) return 'light skin retouching, reduce only the most visible blemishes while keeping realistic skin texture';
-  if (intensity === 3) return 'natural skin retouching, reduce blemishes and redness while preserving pores and skin texture';
-  if (intensity === 4) return 'moderate skin retouching, smooth uneven skin tone, reduce blemishes and redness while keeping some skin texture';
-  return 'clean skin retouching, reduce blemishes, redness, and uneven tone, slightly smoothed but not plastic';
+  if (intensity <= 1) return 'very minimal skin retouching, preserve pores and natural facial lines';
+  if (intensity === 2) return 'lightly reduce only the most visible blemishes while keeping realistic skin texture';
+  if (intensity === 3) return 'naturally reduce small blemishes, uneven skin spots, redness, and mild discoloration while preserving realistic skin texture';
+  if (intensity === 4) return 'moderately soften uneven tone and visible spots without making skin plastic';
+  return 'clean but realistic skin retouching, keep pores and natural age texture';
 }
 
 // ── 미소 보정 강도 설명 ─────────────────────────────────────
 function getSmileAdjustment(intensity: number): string {
   if (intensity <= 1) return 'keep the original expression, do not change the smile';
-  if (intensity === 2) return 'very subtle, barely noticeable natural gentle smile, only slightly lift the corners of the mouth';
-  return 'gentle natural smile, slightly lift the corners of the mouth and soften the eyes for a friendly professional look';
+  if (intensity === 2) return 'very subtly lift the corners of the mouth for a gentle, warm, professional smile without showing teeth';
+  return 'slightly brighter warm professional smile, do not show teeth or reshape the mouth';
 }
 
 // ── 밝기 조절 설명 ─────────────────────────────────────────
@@ -57,29 +57,15 @@ function getBrightnessAdjustment(brightness: number): string {
 
 // ── 강도별 기본 지시 ───────────────────────────────────────
 const STRENGTH_BASE: Record<RetouchStrength, string> = {
-  natural: `Edit the uploaded portrait photo very lightly and naturally. 
-Preserve the person's identity, age appearance, facial structure, hairstyle, clothing, and overall composition exactly as in the original. 
-Only reduce the most distracting visible blemishes slightly. Keep the expression the same or with minimal change. 
-The result should look almost identical to the original, just slightly cleaner and better lit.`,
+  natural: `Retouch this portrait naturally and conservatively. Preserve the person's identity, face shape, age impression, clothing, background, lighting, and camera framing. Remove small facial blemishes and uneven skin spots while keeping realistic skin texture. Gently soften the nasolabial folds beside the nose without erasing them completely. Reduce fine lines around the mouth and subtly lift the corners of the mouth to create a gentle, warm, professional smile. Clean up stray flyaway hairs around the head while preserving the original hairstyle and hair texture. Do not make the face look younger, plastic, overly smooth, or like a different person. Do not change the eyes, nose, mouth shape significantly, clothing, jewelry, background, or pose. The final result should look like a natural professional profile photo.`,
 
-  standard: `Edit the uploaded portrait photo naturally. 
-Preserve the person's identity, age appearance, facial structure, hairstyle, clothing, and overall composition. 
-Retouch the face lightly, improve overall portrait quality with balanced exposure, natural skin tone, slightly clearer eyes, and soft studio lighting. 
-Clean up minor stray hairs only when they are distracting. 
-The result should look like a realistic professional profile photo, not AI-generated.`,
+  standard: `Retouch this portrait naturally and conservatively. Preserve the person's identity, face shape, age impression, clothing, background, lighting, and camera framing. Remove small facial blemishes, uneven skin spots, mild redness, and discoloration while keeping realistic skin texture. Soften the nasolabial folds beside the nose by about 30 to 50 percent without erasing them completely. Reduce fine lines around the mouth and subtly lift the mouth corners for a gentle, warm, professional smile. Clean up only distracting flyaway hairs while preserving the original hairstyle and hair texture. Keep the result suitable for corporate profiles, resumes, and instructor profile photos.`,
 
-  polished: `Edit the uploaded portrait photo for a polished studio profile look. 
-Preserve the person's identity, age appearance, facial structure, hairstyle, and clothing exactly. 
-Retouch the skin for a clean and even complexion, improve lighting to a soft studio feel, and create a professional portrait quality. 
-Keep all facial proportions and features true to the original. 
-The result should look like a high-quality professional studio portrait photo.`,
+  polished: `Retouch this portrait for a clean but still natural professional profile photo. Preserve identity, face shape, age impression, clothing, jewelry, background, lighting, camera framing, and pose. Reduce blemishes and uneven tone more clearly while keeping real skin texture and natural facial lines. Do not make the person look younger or different. Avoid beauty-filter or glamour-retouch effects.`,
 };
 
 // ── 공통 고정 지시 ─────────────────────────────────────────
-const COMMON_CONSTRAINTS = `Preserve the person's eyes, nose, mouth, face shape, and body proportions exactly as in the original. 
-Keep the hairstyle and clothing unchanged. 
-Do not make the skin look plastic or overly smooth. 
-Keep realistic skin texture, pores, and natural facial lines.`;
+const COMMON_CONSTRAINTS = `Preserve the person's eyes, nose, mouth position and size, face shape, body proportions, hairstyle, hair length, parting, clothing details, buttons, jewelry, background, lighting, camera framing, and pose. Do not make the person look younger or like a different person. Keep realistic skin texture, pores, and natural age texture.`;
 
 // ── 양수 프롬프트 생성 ─────────────────────────────────────
 export function buildPositivePrompt(options: RetouchOptions): string {
@@ -99,8 +85,8 @@ export function buildPositivePrompt(options: RetouchOptions): string {
     `Skin: ${skinPrompt}.`,
     `Expression: ${smilePrompt}.`,
     `Lighting: ${brightPrompt}.`,
-    `Background: Replace the background with a ${bgPrompt} that harmonizes with the clothing.`,
-    `Final quality: professional profile photo, photorealistic, high quality, not AI-generated looking.`,
+    `Background: Preserve the original background as much as possible; if cleanup is necessary, keep it close to ${bgPrompt}.`,
+    `Final quality: natural professional profile photo for corporate profiles, resumes, and instructor introductions.`,
   ].join('\n');
 }
 
@@ -115,17 +101,13 @@ export function buildNegativePrompt(options: RetouchOptions): string {
     : 'Do not remove all skin texture. Do not create plastic skin. ';
 
   return [
-    'Do not change the person\'s identity.',
-    'Do not make the person look younger than the original.',
-    'Do not reshape the face.',
-    'Do not enlarge the eyes.',
-    'Do not change the hairstyle, clothing, accessories, or body shape.',
+    'over-smoothed skin, plastic skin, heavy makeup, face reshaping, younger face, different person',
+    'exaggerated smile, visible teeth, cartoon style, beauty filter, glamour retouch',
+    'changed hairstyle, changed clothing, changed background, distorted facial features',
+    'asymmetrical eyes, artificial skin texture, loss of fabric detail',
+    'Do not change the person\'s identity, age impression, face outline, eyes, nose, mouth shape, hairstyle, clothing, jewelry, background, pose, or camera framing.',
     skinNeg,
     smileNeg,
-    'Do not add heavy makeup.',
-    'Do not over-sharpen.',
-    'Do not make the image look synthetic, cartoonish, glamorous, or artificial.',
-    'Do not change the ethnicity or facial features.',
     'ugly, deformed, disfigured, watermark, text, logo, bad anatomy, extra limbs, mutation',
   ].filter(Boolean).join(' ');
 }
@@ -133,12 +115,12 @@ export function buildNegativePrompt(options: RetouchOptions): string {
 // ── instruct-pix2pix: image_guidance_scale ────────────────
 // 높을수록 원본을 더 보존 (1.0=프롬프트 중심, 2.5=원본 중심)
 export function getImageGuidanceScale(strength: RetouchStrength): number {
-  return { natural: 2.0, standard: 1.5, polished: 1.1 }[strength];
+  return { natural: 2.4, standard: 2.0, polished: 1.6 }[strength];
 }
 
 // ── (하위 호환) prompt_strength — 더 이상 사용 안 함 ────────
 export function getPromptStrength(strength: RetouchStrength): number {
-  return { natural: 0.35, standard: 0.50, polished: 0.65 }[strength];
+  return { natural: 0.30, standard: 0.48, polished: 0.65 }[strength];
 }
 
 // ── 크롭 비율 → width/height ───────────────────────────────

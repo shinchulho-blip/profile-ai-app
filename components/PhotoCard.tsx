@@ -33,7 +33,7 @@ export default function PhotoCard({
   const formatBytes = (b: number) =>
     b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)}MB` : `${(b / 1024).toFixed(0)}KB`;
 
-  // ── AI 보정 실행 (비동기 폴링 방식 — Vercel 60초 제한 우회) ──
+  // ── 자연스러운 프로필 보정 실행 (비동기 폴링 방식 — Vercel 60초 제한 우회) ──
   const handleRetouch = async () => {
     setProcessing(true);
     setElapsed(0);
@@ -143,7 +143,7 @@ export default function PhotoCard({
           <div className="absolute top-2 right-2">
             {isEnhanced
               ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500 text-white shadow">
-                  <CheckCircle2 className="w-3 h-3" />AI 보정
+                  <CheckCircle2 className="w-3 h-3" />프로필 보정
                 </span>
               : <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-black/50 text-white">원본</span>}
           </div>
@@ -165,12 +165,12 @@ export default function PhotoCard({
             style={!isEnhanced ? { background: "linear-gradient(135deg, #7c3aed, #a855f7)" } : undefined}
           >
             <Sparkles className="w-3 h-3" />
-            {isEnhanced ? "재보정" : "AI 보정"}
+            {isEnhanced ? "다시 보정" : "프로필 보정"}
           </button>
         </div>
       </div>
 
-      {/* ── AI 보정 모달 ─────────────────────────────────── */}
+      {/* ── 자연스러운 프로필 보정 모달 ───────────────────── */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
           style={{ background: "rgba(0,0,0,0.7)" }}
@@ -184,7 +184,7 @@ export default function PhotoCard({
               <div>
                 <h2 className="text-base font-extrabold text-gray-900 flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-violet-600" />
-                  AI 프로필 보정
+                  자연스러운 프로필 보정
                 </h2>
                 <p className="text-xs text-gray-400 mt-0.5">{photo.filename}</p>
               </div>
@@ -210,12 +210,12 @@ export default function PhotoCard({
                   {processing ? (
                     <>
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      AI 보정 중... (20~45초 소요)
+                      자연스럽게 보정 중... (20~45초 소요)
                     </>
                   ) : (
                     <>
                       <Sparkles className="w-5 h-5" />
-                      {isEnhanced ? "다시 보정하기" : "AI 보정 시작"}
+                      {isEnhanced ? "다시 보정하기" : "자연 보정 시작"}
                     </>
                   )}
                 </button>
@@ -224,10 +224,10 @@ export default function PhotoCard({
                 {processing && (
                   <div className="p-3 bg-violet-50 border border-violet-100 rounded-xl text-xs text-violet-700">
                     <div className="flex items-center justify-between mb-1">
-                      <p className="font-bold">🤖 AI가 보정 중입니다</p>
+                    <p className="font-bold">프로필 사진을 자연스럽게 보정 중입니다</p>
                       <span className="font-mono text-violet-500">{elapsed}초 경과</span>
                     </div>
-                    <p>얼굴 복원 · 피부 보정 처리 중...</p>
+                    <p>피부 결 · 잡티 · 자연스러운 인상 보정 처리 중...</p>
                     <p className="mt-1 text-violet-400">첫 실행 시 콜드 스타트로 1~3분 소요될 수 있습니다.</p>
                   </div>
                 )}
@@ -273,7 +273,7 @@ export default function PhotoCard({
                     {processing ? (
                       <>
                         <div className="w-16 h-16 rounded-full border-4 border-violet-200 border-t-violet-600 animate-spin mb-4" />
-                        <p className="text-sm font-bold text-gray-600">AI 보정 처리 중...</p>
+                        <p className="text-sm font-bold text-gray-600">프로필 보정 처리 중...</p>
                         <p className="text-xs text-gray-400 mt-1">잠시만 기다려주세요</p>
                       </>
                     ) : (
@@ -285,7 +285,7 @@ export default function PhotoCard({
                           <div className="text-center">
                             <RefreshCw className="w-10 h-10 text-violet-400 mx-auto mb-2" />
                             <p className="text-sm font-bold text-gray-700">옵션 설정 후</p>
-                            <p className="text-sm font-bold text-violet-600">AI 보정 시작</p>
+                            <p className="text-sm font-bold text-violet-600">자연 보정 시작</p>
                           </div>
                         </div>
                       </div>

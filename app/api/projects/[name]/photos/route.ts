@@ -4,6 +4,13 @@ import type { Photo } from '@/types';
 
 export const runtime = 'nodejs';
 
+function getPairingFilename(publicId: string): string {
+  const filename = publicId.split('/').pop() ?? publicId;
+  return filename
+    .replace(/^natural-profile-retouch-/, '')
+    .replace(/^retouched-profile-/, '');
+}
+
 // GET /api/projects/[name]/photos — 원본 + 보정 사진 목록
 export async function GET(
   _req: NextRequest,
@@ -29,11 +36,24 @@ export async function GET(
     ]);
 
     // enhanced 사진을 Map으로 색인 (파일명 기준으로 원본과 매칭)
-    const enhancedMap = new Map<string, { url: string; publicId: string }>();
+    const enhancedMap = new Map<string, { url: string; publicId: string; createdAt?: string; isNaturalProfileRetouch: boolean }>();
     for (const r of enhancedRes.resources) {
-      // public_id: "profileai/교육명/enhanced/파일명"
-      const filename = r.public_id.split('/').pop() ?? r.public_id;
-      enhancedMap.set(filename, { url: r.secure_url, publicId: r.public_id });
+      // public_id: "profileai/교육명/enhanced/(natural-profile-retouch-)파일명"
+      const filename = getPairingFilename(r.public_id);
+      const existing = enhancedMap.get(filename);
+      const isNaturalProfileRetouch = r.public_id.split('/').pop()?.startsWith('natural-profile-retouch-') ?? false;
+      const shouldReplace = !existing
+        || (isNaturalProfileRetouch && !existing.isNaturalProfileRetouch)
+        || new Date(r.created_at ?? 0).getTime() > new Date(existing.createdAt ?? 0).getTime();
+
+      if (shouldReplace) {
+        enhancedMap.set(filename, {
+          url: r.secure_url,
+          publicId: r.public_id,
+          createdAt: r.created_at,
+          isNaturalProfileRetouch,
+        });
+      }
     }
 
     const photos: Photo[] = originalsRes.resources.map((r: {

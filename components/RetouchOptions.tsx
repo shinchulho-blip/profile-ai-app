@@ -11,9 +11,9 @@ interface RetouchOptionsProps {
 }
 
 const STRENGTHS = [
-  { id: "natural"  as const, label: "Natural",   desc: "원본 느낌 유지, 최소 보정" },
-  { id: "standard" as const, label: "Standard",  desc: "자연스러운 프로필 보정 (기본값)" },
-  { id: "polished" as const, label: "Polished",  desc: "스튜디오 느낌의 깔끔한 보정" },
+  { id: "natural"  as const, label: "자연 보정", desc: "원본 유지, strength 0.25~0.35" },
+  { id: "standard" as const, label: "기본 보정", desc: "은은한 프로필 보정, strength 0.4~0.55" },
+  { id: "polished" as const, label: "강한 보정", desc: "조금 더 정돈, strength 0.6~0.75" },
 ];
 
 const BG_COLORS = [
@@ -75,7 +75,7 @@ export default function RetouchOptionsPanel({ value, onChange }: RetouchOptionsP
           {/* 피부 보정 강도 */}
           <div>
             <div className="flex justify-between mb-2">
-              <p className="text-xs font-bold text-gray-600">피부 보정 강도</p>
+              <p className="text-xs font-bold text-gray-600">피부 결 보정</p>
               <p className="text-xs text-violet-600 font-semibold">
                 {["", "최소", "약하게", "보통", "강하게", "최대"][value.skinIntensity]}
               </p>
@@ -96,7 +96,7 @@ export default function RetouchOptionsPanel({ value, onChange }: RetouchOptionsP
             <div className="flex justify-between mb-2">
               <p className="text-xs font-bold text-gray-600">미소 보정</p>
               <p className="text-xs text-violet-600 font-semibold">
-                {["", "없음", "은은하게", "밝은 인상"][value.smileIntensity]}
+                {["", "원본 유지", "은은하게", "밝은 인상"][value.smileIntensity]}
               </p>
             </div>
             <input
