@@ -112,6 +112,16 @@ export function buildNegativePrompt(options: RetouchOptions): string {
   ].filter(Boolean).join(' ');
 }
 
+export function buildFluxKontextPrompt(options: RetouchOptions): string {
+  return [
+    buildPositivePrompt(options),
+    `Strictly avoid: ${buildNegativePrompt(options)}.`,
+    'Use the uploaded image as the reference image and make a low-denoise conservative edit, not a text-to-image regeneration.',
+    'Keep the same person, same facial proportions, same body shape, same clothing details, same jewelry, same background, same lighting, and same camera framing.',
+    'Only make natural profile-photo retouching changes: small blemish reduction, mild redness and uneven tone cleanup, 30 to 50 percent softening of nasolabial folds, subtle mouth-corner lift without teeth, and gentle cleanup of flyaway hairs.',
+  ].join('\n');
+}
+
 // ── instruct-pix2pix: image_guidance_scale ────────────────
 // 높을수록 원본을 더 보존 (1.0=프롬프트 중심, 2.5=원본 중심)
 export function getImageGuidanceScale(strength: RetouchStrength): number {

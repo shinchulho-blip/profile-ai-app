@@ -5,9 +5,11 @@ const MAX_CREATE_ATTEMPTS = 5;
 const MAX_RETRY_DELAY_MS = 12_000;
 
 type PredictionCreateOptions = {
-  version: string;
   input: object;
-};
+} & (
+  | { version: string }
+  | { model: string }
+);
 
 type ReplicateQueue = {
   nextAvailableAt: number;

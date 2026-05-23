@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Replicate from 'replicate';
-import { type RetouchOptions } from '@/lib/prompts';
+import { buildFluxKontextPrompt, type RetouchOptions } from '@/lib/prompts';
 import {
   createPredictionWithRateLimit,
   isRateLimitError,
@@ -10,14 +10,7 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 60; // 저크레딧 계정의 429 재시도/대기 시간을 포함
 
-// CodeFormer 알려진 안정 버전 (fallback용)
-const CODEFORMER_FALLBACK = '7de2ea26c616d5bf2245ad0d5e24f0ff9a6204578a5c876db53142edd9d2cd56';
-
-function getFidelity(strength: RetouchOptions['strength']): number {
-  // CodeFormer fidelity is inverse to "edit strength": higher values preserve
-  // identity, face shape, age impression, and clothing/background structure.
-  return { natural: 0.95, standard: 0.89, polished: 0.83 }[strength];
-}
+const FLUX_KONTEXT_PRO_MODEL = 'black-forest-labs/flux-kontext-pro';
 
 // POST /api/retouch — 예측 시작만 하고 즉시 반환 (타임아웃 방지)
 export async function POST(req: NextRequest) {
@@ -39,23 +32,20 @@ export async function POST(req: NextRequest) {
     const originalUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
     const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 
-    // 모델 버전 동적 조회 (fallback 사용)
-    let versionId = CODEFORMER_FALLBACK;
-    try {
-      const info = await replicate.models.get('sczhou', 'codeformer');
-      versionId = info.latest_version?.id ?? CODEFORMER_FALLBACK;
-    } catch { /* fallback 사용 */ }
-
-    // 예측 생성 (429 발생 시 자동 재시도, 최대 3회)
+    // FLUX Kontext Pro image edit: 원본 이미지를 reference로 사용하는 보수적 편집
     const input = {
-      image:               originalUrl,
-      codeformer_fidelity: getFidelity(options.strength),
-      background_enhance:  false,
-      face_upsample:       false,
-      upscale:             1,
+      prompt:            buildFluxKontextPrompt(options),
+      input_image:       originalUrl,
+      aspect_ratio:      'match_input_image',
+      output_format:     'jpg',
+      safety_tolerance:  2,
+      prompt_upsampling: false,
     };
 
-    const prediction = await createPredictionWithRateLimit(replicate, { version: versionId, input });
+    const prediction = await createPredictionWithRateLimit(replicate, {
+      model: FLUX_KONTEXT_PRO_MODEL,
+      input,
+    });
 
     return NextResponse.json({ success: true, predictionId: prediction.id });
 
