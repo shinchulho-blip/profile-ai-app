@@ -16,7 +16,7 @@ const CODEFORMER_FALLBACK = '7de2ea26c616d5bf2245ad0d5e24f0ff9a6204578a5c876db53
 function getFidelity(strength: RetouchOptions['strength']): number {
   // Higher fidelity keeps the original facial structure and reduces AI artifacts
   // such as bright nostril patches or unnaturally deep under-eye shadows.
-  return { natural: 0.92, standard: 0.84, polished: 0.76 }[strength];
+  return { natural: 0.96, standard: 0.91, polished: 0.86 }[strength];
 }
 
 // POST /api/retouch — 예측 시작만 하고 즉시 반환 (타임아웃 방지)

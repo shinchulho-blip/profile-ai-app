@@ -12,8 +12,8 @@ const TARGET_UPLOAD_BYTES = 9 * 1024 * 1024;
 const JPEG_QUALITIES = [88, 82, 76, 70, 64, 58];
 const MAX_IMAGE_DIMENSIONS = [2200, 1800, 1400, 1200];
 const RETOUCH_OUTPUT_QUALITY = 92;
-const ORIGINAL_BLEND_OPACITY = 0.18;
-const FACE_SOFTEN_OPACITY = 0.14;
+const ORIGINAL_BLEND_OPACITY = 0.28;
+const BACKGROUND_CLEANUP_OPACITY = 0.7;
 
 // 에러 객체를 안전하게 문자열로 변환
 function safeMsg(e: unknown): string {
@@ -39,16 +39,22 @@ async function downloadOptionalImage(url: string): Promise<Buffer | null> {
   }
 }
 
-function buildFaceMask(width: number, height: number): Buffer {
+function buildBackgroundCleanupMask(width: number, height: number): Buffer {
   return Buffer.from(`
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
-      <rect width="100%" height="100%" fill="black"/>
-      <ellipse cx="${width * 0.5}" cy="${height * 0.48}" rx="${width * 0.24}" ry="${height * 0.33}" fill="white"/>
+      <defs>
+        <mask id="cleanup-mask">
+          <rect width="100%" height="100%" fill="white"/>
+          <ellipse cx="${width * 0.5}" cy="${height * 0.46}" rx="${width * 0.37}" ry="${height * 0.48}" fill="black"/>
+          <rect x="${width * 0.24}" y="${height * 0.74}" width="${width * 0.52}" height="${height * 0.26}" fill="black"/>
+        </mask>
+      </defs>
+      <rect width="100%" height="100%" fill="white" mask="url(#cleanup-mask)"/>
     </svg>
   `);
 }
 
-async function softenFaceArea(image: Buffer): Promise<Buffer> {
+async function reduceBackgroundStrayHairs(image: Buffer): Promise<Buffer> {
   const metadata = await sharp(image, { failOn: 'none' }).metadata();
   const { width, height } = metadata;
 
@@ -56,18 +62,20 @@ async function softenFaceArea(image: Buffer): Promise<Buffer> {
     return image;
   }
 
-  const blurredFace = await sharp(image, { failOn: 'none' })
-    .blur(0.7)
-    .ensureAlpha(FACE_SOFTEN_OPACITY)
+  // Clean only the outer background so nose, under-eye detail, hair mass, and shoulders stay sharp.
+  const cleanedBackground = await sharp(image, { failOn: 'none' })
+    .median(3)
+    .blur(1.1)
+    .ensureAlpha(BACKGROUND_CLEANUP_OPACITY)
     .png()
     .toBuffer();
-  const maskedBlur = await sharp(blurredFace, { failOn: 'none' })
-    .composite([{ input: buildFaceMask(width, height), blend: 'dest-in' }])
+  const maskedCleanup = await sharp(cleanedBackground, { failOn: 'none' })
+    .composite([{ input: buildBackgroundCleanupMask(width, height), blend: 'dest-in' }])
     .png()
     .toBuffer();
 
   return sharp(image, { failOn: 'none' })
-    .composite([{ input: maskedBlur, blend: 'over' }])
+    .composite([{ input: maskedCleanup, blend: 'over' }])
     .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
     .toBuffer();
 }
@@ -90,19 +98,19 @@ async function postProcessRetouchOutput(output: Buffer, original: Buffer | null)
         fit: 'cover',
       })
       .toColorspace('srgb')
-      .modulate({ brightness: 1.02, saturation: 0.98 })
+      .modulate({ brightness: 1.03, saturation: 0.98 })
       .ensureAlpha(ORIGINAL_BLEND_OPACITY)
       .png()
       .toBuffer();
 
     processed = await sharp(processed, { failOn: 'none' })
       .composite([{ input: originalLayer, blend: 'over' }])
-      .modulate({ brightness: 1.02, saturation: 0.98 })
+      .modulate({ brightness: 1.03, saturation: 0.98 })
       .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
       .toBuffer();
   }
 
-  return softenFaceArea(processed);
+  return reduceBackgroundStrayHairs(processed);
 }
 
 async function makeCloudinarySafeImage(url: string, originalUrl: string): Promise<Buffer> {
