@@ -96,7 +96,7 @@ export default function RetouchOptionsPanel({ value, onChange }: RetouchOptionsP
             <div className="flex justify-between mb-2">
               <p className="text-xs font-bold text-gray-600">미소 보정</p>
               <p className="text-xs text-violet-600 font-semibold">
-                {["", "없음", "은은하게", "자연스럽게"][value.smileIntensity]}
+                {["", "없음", "은은하게", "조금 더 밝게"][value.smileIntensity]}
               </p>
             </div>
             <input
@@ -106,7 +106,7 @@ export default function RetouchOptionsPanel({ value, onChange }: RetouchOptionsP
               className="w-full accent-violet-600"
             />
             <div className="flex justify-between text-xs text-gray-300 mt-0.5">
-              <span>원본 유지</span><span>자연스러운 미소</span>
+              <span>원본 유지</span><span>밝은 인상</span>
             </div>
           </div>
 

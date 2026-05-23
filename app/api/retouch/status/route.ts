@@ -14,6 +14,7 @@ const MAX_IMAGE_DIMENSIONS = [2200, 1800, 1400, 1200];
 const RETOUCH_OUTPUT_QUALITY = 92;
 const ORIGINAL_BLEND_OPACITY = 0.28;
 const BACKGROUND_CLEANUP_OPACITY = 0.7;
+const DEFAULT_SMILE_INTENSITY = 2;
 
 // 에러 객체를 안전하게 문자열로 변환
 function safeMsg(e: unknown): string {
@@ -80,7 +81,79 @@ async function reduceBackgroundStrayHairs(image: Buffer): Promise<Buffer> {
     .toBuffer();
 }
 
-async function postProcessRetouchOutput(output: Buffer, original: Buffer | null): Promise<Buffer> {
+function normalizeSmileIntensity(value: string | null): 1 | 2 | 3 {
+  const parsed = Number(value);
+  if (parsed === 1 || parsed === 2 || parsed === 3) return parsed;
+  return DEFAULT_SMILE_INTENSITY;
+}
+
+function sampleBilinear(data: Buffer, width: number, height: number, channels: number, x: number, y: number, channel: number): number {
+  const x0 = Math.max(0, Math.min(width - 1, Math.floor(x)));
+  const y0 = Math.max(0, Math.min(height - 1, Math.floor(y)));
+  const x1 = Math.max(0, Math.min(width - 1, x0 + 1));
+  const y1 = Math.max(0, Math.min(height - 1, y0 + 1));
+  const wx = x - x0;
+  const wy = y - y0;
+
+  const topLeft = data[(y0 * width + x0) * channels + channel];
+  const topRight = data[(y0 * width + x1) * channels + channel];
+  const bottomLeft = data[(y1 * width + x0) * channels + channel];
+  const bottomRight = data[(y1 * width + x1) * channels + channel];
+  const top = topLeft * (1 - wx) + topRight * wx;
+  const bottom = bottomLeft * (1 - wx) + bottomRight * wx;
+
+  return Math.round(top * (1 - wy) + bottom * wy);
+}
+
+async function applySubtleSmileLift(image: Buffer, smileIntensity: 1 | 2 | 3): Promise<Buffer> {
+  if (smileIntensity <= 1) return image;
+
+  const { data, info } = await sharp(image, { failOn: 'none' })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { width, height, channels } = info;
+  const output = Buffer.from(data);
+  const lift = height * (smileIntensity === 3 ? 0.014 : 0.008);
+  const radiusX = width * 0.09;
+  const radiusY = height * 0.07;
+  const corners = [
+    { x: width * 0.39, y: height * 0.65 },
+    { x: width * 0.61, y: height * 0.65 },
+  ];
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let influence = 0;
+      for (const corner of corners) {
+        const dx = (x - corner.x) / radiusX;
+        const dy = (y - corner.y) / radiusY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < 1) {
+          influence = Math.max(influence, Math.pow(1 - distance, 2));
+        }
+      }
+
+      if (influence <= 0) continue;
+
+      const sampleY = Math.min(height - 1, y + lift * influence);
+      const offset = (y * width + x) * channels;
+      for (let channel = 0; channel < channels; channel++) {
+        output[offset + channel] = sampleBilinear(data, width, height, channels, x, sampleY, channel);
+      }
+    }
+  }
+
+  return sharp(output, { raw: { width, height, channels } })
+    .jpeg({ quality: RETOUCH_OUTPUT_QUALITY, mozjpeg: true })
+    .toBuffer();
+}
+
+async function postProcessRetouchOutput(
+  output: Buffer,
+  original: Buffer | null,
+  smileIntensity: 1 | 2 | 3
+): Promise<Buffer> {
   let processed = await sharp(output, { failOn: 'none' })
     .rotate()
     .toColorspace('srgb')
@@ -110,13 +183,18 @@ async function postProcessRetouchOutput(output: Buffer, original: Buffer | null)
       .toBuffer();
   }
 
-  return reduceBackgroundStrayHairs(processed);
+  const withSmile = await applySubtleSmileLift(processed, smileIntensity);
+  return reduceBackgroundStrayHairs(withSmile);
 }
 
-async function makeCloudinarySafeImage(url: string, originalUrl: string): Promise<Buffer> {
+async function makeCloudinarySafeImage(
+  url: string,
+  originalUrl: string,
+  smileIntensity: 1 | 2 | 3
+): Promise<Buffer> {
   const output = await downloadImage(url);
   const original = await downloadOptionalImage(originalUrl);
-  const processed = await postProcessRetouchOutput(output, original);
+  const processed = await postProcessRetouchOutput(output, original, smileIntensity);
 
   if (processed.byteLength <= TARGET_UPLOAD_BYTES) {
     return processed;
@@ -191,6 +269,7 @@ export async function GET(req: NextRequest) {
     const publicId     = searchParams.get('publicId') ?? '';
     const projectName  = searchParams.get('projectName') ?? '';
     const filename     = searchParams.get('filename') ?? '';
+    const smileIntensity = normalizeSmileIntensity(searchParams.get('smileIntensity'));
 
     if (!predictionId) {
       return NextResponse.json({ success: false, error: 'predictionId가 없습니다.' }, { status: 400 });
@@ -237,7 +316,7 @@ export async function GET(req: NextRequest) {
       }
 
       const originalUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
-      const uploadImage = await makeCloudinarySafeImage(outputUrl as string, originalUrl);
+      const uploadImage = await makeCloudinarySafeImage(outputUrl as string, originalUrl, smileIntensity);
       const uploaded = await uploadImageBuffer(uploadImage, {
         folder: enhancedFolder,
         publicId: baseName,
