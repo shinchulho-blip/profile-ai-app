@@ -51,7 +51,7 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
 
   if (aspect >= 1.15) {
     return {
-      face: { cx: 0.5, cy: 0.32, rx: 0.17, ry: 0.18 },
+      face: { cx: 0.5, cy: 0.32, rx: 0.18, ry: 0.22 },
       mouth: { y: 0.43, leftX: 0.43, rightX: 0.57, radiusX: 0.08, radiusY: 0.055 },
       wrinkleSpots: [
         { cx: 0.42, cy: 0.44, rx: 0.07, ry: 0.06 },
@@ -65,16 +65,16 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
         leftMouth: [0.44, 0.46, 0.40, 0.49, 0.42, 0.54, 0.46, 0.56],
         rightMouth: [0.56, 0.46, 0.60, 0.49, 0.58, 0.54, 0.54, 0.56],
       },
-      leftEyeExclude: { cx: 0.36, cy: 0.31, rx: 0.08, ry: 0.04 },
-      rightEyeExclude: { cx: 0.64, cy: 0.31, rx: 0.08, ry: 0.04 },
+      leftEyeExclude: { cx: 0.36, cy: 0.31, rx: 0.08, ry: 0.022 },
+      rightEyeExclude: { cx: 0.64, cy: 0.31, rx: 0.08, ry: 0.022 },
       noseBridge: { cx: 0.5, cy: 0.33, rx: 0.03, ry: 0.07 },
       noseBase: { cx: 0.5, cy: 0.395, rx: 0.048, ry: 0.035 },
-      mouthExclude: { cx: 0.5, cy: 0.435, rx: 0.08, ry: 0.045 },
+      mouthExclude: { cx: 0.5, cy: 0.435, rx: 0.08, ry: 0.022 },
     };
   }
 
   return {
-    face: { cx: 0.5, cy: 0.45, rx: 0.21, ry: 0.25 },
+    face: { cx: 0.5, cy: 0.45, rx: 0.23, ry: 0.28 },
     mouth: { y: 0.66, leftX: 0.38, rightX: 0.62, radiusX: 0.12, radiusY: 0.09 },
     wrinkleSpots: [
       { cx: 0.41, cy: 0.62, rx: 0.08, ry: 0.08 },
@@ -88,50 +88,31 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
       leftMouth: [0.43, 0.68, 0.40, 0.72, 0.42, 0.77, 0.46, 0.80],
       rightMouth: [0.57, 0.68, 0.60, 0.72, 0.58, 0.77, 0.54, 0.80],
     },
-    leftEyeExclude: { cx: 0.34, cy: 0.44, rx: 0.10, ry: 0.05 },
-    rightEyeExclude: { cx: 0.66, cy: 0.44, rx: 0.10, ry: 0.05 },
+    leftEyeExclude: { cx: 0.34, cy: 0.44, rx: 0.10, ry: 0.025 },
+    rightEyeExclude: { cx: 0.66, cy: 0.44, rx: 0.10, ry: 0.025 },
     noseBridge: { cx: 0.5, cy: 0.48, rx: 0.05, ry: 0.09 },
     noseBase: { cx: 0.5, cy: 0.60, rx: 0.065, ry: 0.05 },
-    mouthExclude: { cx: 0.5, cy: 0.665, rx: 0.12, ry: 0.06 },
+    mouthExclude: { cx: 0.5, cy: 0.665, rx: 0.12, ry: 0.028 },
   };
 }
 
-function buildExpressionLineMask(width: number, height: number): Buffer {
-  const strokeWidth = Math.max(34, width * 0.075);
-  const { lines, wrinkleSpots, noseBridge, noseBase, mouthExclude, leftEyeExclude, rightEyeExclude } = getPortraitLayout(width, height);
-  const path = ([x1, y1, x2, y2, x3, y3, x4, y4]: PortraitLayout['lines']['leftNasolabial']) =>
-    `M ${width * x1} ${height * y1} C ${width * x2} ${height * y2}, ${width * x3} ${height * y3}, ${width * x4} ${height * y4}`;
-  const ellipses = wrinkleSpots
-    .map(({ cx, cy, rx, ry }) =>
-      `<ellipse cx="${width * cx}" cy="${height * cy}" rx="${width * rx}" ry="${height * ry}" fill="white" opacity="0.76"/>`
-    )
-    .join('');
+function buildFaceSkinMask(width: number, height: number): Buffer {
+  const { face, noseBridge, noseBase, mouthExclude, leftEyeExclude, rightEyeExclude } = getPortraitLayout(width, height);
 
   return Buffer.from(`
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <mask id="exclude-features-mask">
-          <rect x="0" y="0" width="${width}" height="${height}" fill="white" />
-          <!-- Exclude left and right eyes (prevents eyebag smudge) -->
+        <mask id="face-skin-mask">
+          <rect x="0" y="0" width="${width}" height="${height}" fill="black" />
+          <ellipse cx="${width * face.cx}" cy="${height * face.cy}" rx="${width * face.rx}" ry="${height * face.ry}" fill="white" />
           <ellipse cx="${width * leftEyeExclude.cx}" cy="${height * leftEyeExclude.cy}" rx="${width * leftEyeExclude.rx}" ry="${height * leftEyeExclude.ry}" fill="black" />
           <ellipse cx="${width * rightEyeExclude.cx}" cy="${height * rightEyeExclude.cy}" rx="${width * rightEyeExclude.rx}" ry="${height * rightEyeExclude.ry}" fill="black" />
-          <!-- Exclude nose bridge -->
           <ellipse cx="${width * noseBridge.cx}" cy="${height * noseBridge.cy}" rx="${width * noseBridge.rx}" ry="${height * noseBridge.ry}" fill="black" />
-          <!-- Exclude nose base (nostrils and wings) -->
           <ellipse cx="${width * noseBase.cx}" cy="${height * noseBase.cy}" rx="${width * noseBase.rx}" ry="${height * noseBase.ry}" fill="black" />
-          <!-- Exclude mouth and lip shadow (prevents dark bleeding) -->
           <ellipse cx="${width * mouthExclude.cx}" cy="${height * mouthExclude.cy}" rx="${width * mouthExclude.rx}" ry="${height * mouthExclude.ry}" fill="black" />
         </mask>
       </defs>
-      <g mask="url(#exclude-features-mask)">
-        ${ellipses}
-        <g fill="none" stroke="white" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="0.96">
-          <path d="${path(lines.leftNasolabial)}" />
-          <path d="${path(lines.rightNasolabial)}" />
-          <path d="${path(lines.leftMouth)}" />
-          <path d="${path(lines.rightMouth)}" />
-        </g>
-      </g>
+      <rect x="0" y="0" width="${width}" height="${height}" fill="white" mask="url(#face-skin-mask)" />
     </svg>
   `);
 }
@@ -148,11 +129,11 @@ async function softenNoseAndMouthLines(
     return image;
   }
 
-  const lineMask = buildExpressionLineMask(width, height);
+  const faceSkinMask = buildFaceSkinMask(width, height);
   
   // Feather the mask using sharp to ensure perfectly soft transitions and completely natural edges
-  const blurRadius = Math.max(12, Math.round(width * 0.015));
-  const featheredMask = await sharp(lineMask, { failOn: 'none' })
+  const blurRadius = Math.max(20, Math.round(width * 0.03));
+  const featheredMask = await sharp(faceSkinMask, { failOn: 'none' })
     .blur(blurRadius)
     .png()
     .toBuffer();
@@ -179,7 +160,7 @@ async function softenNoseAndMouthLines(
   const maskedLightenedLines = await sharp(smoothedImage, { failOn: 'none' })
     .median(3)
     .blur(2.2)
-    .modulate({ brightness: 1.16, saturation: 0.98 })
+    .modulate({ brightness: 1.20, saturation: 0.98 })
     .ensureAlpha(lightenOpacity)
     .composite([{ input: featheredMask, blend: 'dest-in' }])
     .png()
