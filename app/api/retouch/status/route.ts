@@ -16,16 +16,16 @@ const RETOUCH_OUTPUT_QUALITY = 92;
 
 const RETOUCH_STRENGTHS = {
   natural: {
-    smooth: 0.22,
-    lighten: 0.45,
+    smooth: 0.20,
+    lighten: 0.40,
   },
   standard: {
-    smooth: 0.45,
-    lighten: 0.70,
+    smooth: 0.40,
+    lighten: 0.65,
   },
   polished: {
-    smooth: 0.76,
-    lighten: 0.92,
+    smooth: 0.65,
+    lighten: 0.85,
   },
 } as const;
 
@@ -41,6 +41,7 @@ type PortraitLayout = {
   };
   noseBridge: { cx: number; cy: number; rx: number; ry: number };
   noseBase: { cx: number; cy: number; rx: number; ry: number };
+  mouthExclude: { cx: number; cy: number; rx: number; ry: number };
 };
 
 function getPortraitLayout(width: number, height: number): PortraitLayout {
@@ -64,6 +65,7 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
       },
       noseBridge: { cx: 0.5, cy: 0.33, rx: 0.03, ry: 0.07 },
       noseBase: { cx: 0.5, cy: 0.395, rx: 0.048, ry: 0.035 },
+      mouthExclude: { cx: 0.5, cy: 0.435, rx: 0.08, ry: 0.045 },
     };
   }
 
@@ -84,12 +86,13 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
     },
     noseBridge: { cx: 0.5, cy: 0.48, rx: 0.05, ry: 0.09 },
     noseBase: { cx: 0.5, cy: 0.60, rx: 0.065, ry: 0.05 },
+    mouthExclude: { cx: 0.5, cy: 0.665, rx: 0.12, ry: 0.06 },
   };
 }
 
 function buildExpressionLineMask(width: number, height: number): Buffer {
   const strokeWidth = Math.max(34, width * 0.075);
-  const { lines, wrinkleSpots, noseBridge, noseBase } = getPortraitLayout(width, height);
+  const { lines, wrinkleSpots, noseBridge, noseBase, mouthExclude } = getPortraitLayout(width, height);
   const path = ([x1, y1, x2, y2, x3, y3, x4, y4]: PortraitLayout['lines']['leftNasolabial']) =>
     `M ${width * x1} ${height * y1} C ${width * x2} ${height * y2}, ${width * x3} ${height * y3}, ${width * x4} ${height * y4}`;
   const ellipses = wrinkleSpots
@@ -101,15 +104,17 @@ function buildExpressionLineMask(width: number, height: number): Buffer {
   return Buffer.from(`
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <mask id="exclude-nose-mask">
+        <mask id="exclude-features-mask">
           <rect x="0" y="0" width="${width}" height="${height}" fill="white" />
           <!-- Exclude nose bridge -->
           <ellipse cx="${width * noseBridge.cx}" cy="${height * noseBridge.cy}" rx="${width * noseBridge.rx}" ry="${height * noseBridge.ry}" fill="black" />
           <!-- Exclude nose base (nostrils and wings) -->
           <ellipse cx="${width * noseBase.cx}" cy="${height * noseBase.cy}" rx="${width * noseBase.rx}" ry="${height * noseBase.ry}" fill="black" />
+          <!-- Exclude mouth and lip shadow (prevents dark bleeding) -->
+          <ellipse cx="${width * mouthExclude.cx}" cy="${height * mouthExclude.cy}" rx="${width * mouthExclude.rx}" ry="${height * mouthExclude.ry}" fill="black" />
         </mask>
       </defs>
-      <g mask="url(#exclude-nose-mask)">
+      <g mask="url(#exclude-features-mask)">
         ${ellipses}
         <g fill="none" stroke="white" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="0.96">
           <path d="${path(lines.leftNasolabial)}" />
