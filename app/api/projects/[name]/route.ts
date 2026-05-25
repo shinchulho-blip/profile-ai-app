@@ -73,10 +73,17 @@ export async function PATCH(
       }).catch(() => ({ resources: [] })), // enhanced 없으면 빈 배열
     ]);
 
+    const newOriginalsFolder = getOriginalsFolder(decodedNewName);
+    const newEnhancedFolder = getEnhancedFolder(decodedNewName);
+
+    // 1. 새 프로젝트 폴더 생성 (사진이 0장인 프로젝트의 경우에도 Cloudinary 폴더로 정상 등록되도록 함)
+    await cloudinary.api.create_folder(newOriginalsFolder);
+    await cloudinary.api.create_folder(newEnhancedFolder);
+
     const oldOriginalsPrefix = `${getOriginalsFolder(decodedOldName)}/`;
-    const newOriginalsPrefix = `${getOriginalsFolder(decodedNewName)}/`;
+    const newOriginalsPrefix_slash = `${newOriginalsFolder}/`;
     const oldEnhancedPrefix = `${getEnhancedFolder(decodedOldName)}/`;
-    const newEnhancedPrefix = `${getEnhancedFolder(decodedNewName)}/`;
+    const newEnhancedPrefix_slash = `${newEnhancedFolder}/`;
 
     const renamePromises: Promise<any>[] = [];
 
@@ -84,7 +91,7 @@ export async function PATCH(
     for (const r of originalsRes.resources) {
       const oldPublicId = r.public_id;
       const filename = oldPublicId.slice(oldOriginalsPrefix.length);
-      const newPublicId = `${newOriginalsPrefix}${filename}`;
+      const newPublicId = `${newOriginalsPrefix_slash}${filename}`;
       renamePromises.push(
         cloudinary.uploader.rename(oldPublicId, newPublicId, { invalidate: true })
       );
@@ -94,7 +101,7 @@ export async function PATCH(
     for (const r of enhancedRes.resources) {
       const oldPublicId = r.public_id;
       const filename = oldPublicId.slice(oldEnhancedPrefix.length);
-      const newPublicId = `${newEnhancedPrefix}${filename}`;
+      const newPublicId = `${newEnhancedPrefix_slash}${filename}`;
       renamePromises.push(
         cloudinary.uploader.rename(oldPublicId, newPublicId, { invalidate: true })
       );
@@ -103,12 +110,18 @@ export async function PATCH(
     // 리네임 작업 일괄 실행
     await Promise.all(renamePromises);
 
-    // 2. 기존 빈 폴더 정리
+    // 2. 기존 빈 폴더 정리 (각각 개별 try-catch로 분리하여 한 폴더가 없더라도 다른 폴더 삭제가 정상 작동하게 함)
     try {
       await cloudinary.api.delete_folder(`${getOriginalsFolder(decodedOldName)}`);
+    } catch { /* 무시 */ }
+
+    try {
       await cloudinary.api.delete_folder(`${getEnhancedFolder(decodedOldName)}`);
+    } catch { /* 무시 */ }
+
+    try {
       await cloudinary.api.delete_folder(`profileai/${decodedOldName}`);
-    } catch { /* 폴더 삭제 실패는 무시 */ }
+    } catch { /* 무시 */ }
 
     return NextResponse.json({
       success: true,
