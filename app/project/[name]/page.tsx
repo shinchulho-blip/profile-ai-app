@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   Download, Trash2, Sparkles, Loader2, RefreshCw,
   ImageIcon, CheckCircle2, AlertTriangle,
-  CheckSquare, Square, X
+  CheckSquare, Square, X, Pencil, Check
 } from "lucide-react";
 import Header from "@/components/Header";
 import UploadZone from "@/components/UploadZone";
@@ -27,6 +27,11 @@ export default function ProjectPage() {
   const [downloading, setDownloading] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
+  // 프로젝트명 변경 상태
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [tempName, setTempName] = useState(projectName);
+  const [updatingName, setUpdatingName] = useState(false);
+
   // 선택 삭제 상태
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -37,6 +42,44 @@ export default function ProjectPage() {
   const enhancedCount = photos.filter((p) => p.enhancedUrl).length;
   const pendingCount = totalCount - enhancedCount;
   const selectedCount = selectedIds.size;
+
+  const startEditing = () => {
+    setTempName(projectName);
+    setIsEditingName(true);
+  };
+
+  const handleRenameProject = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = tempName.trim();
+    if (!trimmed || trimmed === projectName) {
+      setIsEditingName(false);
+      return;
+    }
+
+    setUpdatingName(true);
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(projectName)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newName: trimmed }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatusMsg("✓ 프로젝트명이 변경되었습니다.");
+        setIsEditingName(false);
+        // 새로운 이름의 프로젝트 페이지로 이동
+        router.push(`/project/${encodeURIComponent(trimmed)}`);
+      } else {
+        setStatusMsg(data.error ?? "이름 변경 실패");
+        setTimeout(() => setStatusMsg(null), 3000);
+      }
+    } catch {
+      setStatusMsg("프로젝트명 변경 중 오류가 발생했습니다.");
+      setTimeout(() => setStatusMsg(null), 3000);
+    } finally {
+      setUpdatingName(false);
+    }
+  };
 
   const fetchPhotos = useCallback(async () => {
     setLoading(true);
@@ -197,8 +240,53 @@ export default function ProjectPage() {
         {/* ── 프로젝트 헤더 ──────────────────────────────── */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-xl font-extrabold text-gray-900">{projectName}</h1>
+            <div className="flex-1">
+              {isEditingName ? (
+                <form onSubmit={handleRenameProject} className="flex items-center gap-2 mb-1.5 max-w-md">
+                  <input
+                    type="text"
+                    value={tempName}
+                    onChange={(e) => setTempName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") setIsEditingName(false);
+                    }}
+                    disabled={updatingName}
+                    className="flex-1 px-3 py-1.5 border border-gray-200 rounded-xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent text-gray-900 bg-white"
+                    maxLength={60}
+                    autoFocus
+                  />
+                  <button
+                    type="submit"
+                    disabled={updatingName || !tempName.trim()}
+                    className="p-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center"
+                    title="저장"
+                  >
+                    {updatingName ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingName(false)}
+                    disabled={updatingName}
+                    className="p-2 border border-gray-200 text-gray-500 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 flex items-center justify-center bg-white"
+                    title="취소"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </form>
+              ) : (
+                <div className="flex items-center gap-2 mb-1">
+                  <h1 className="text-xl font-extrabold text-gray-900 truncate max-w-[280px] sm:max-w-[400px] md:max-w-[600px]">
+                    {projectName}
+                  </h1>
+                  <button
+                    onClick={startEditing}
+                    className="p-1.5 text-gray-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all flex items-center justify-center"
+                    title="프로젝트명 수정"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
               <p className="text-sm text-gray-500 mt-0.5">
                 총 {totalCount}장
                 {enhancedCount > 0 && <span className="text-violet-600 ml-2">· 보정완료 {enhancedCount}장</span>}
