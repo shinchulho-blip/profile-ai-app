@@ -16,16 +16,16 @@ const RETOUCH_OUTPUT_QUALITY = 92;
 
 const RETOUCH_STRENGTHS = {
   natural: {
-    smooth: 0.25,
+    smooth: 0.22,
     lighten: 0.45,
   },
   standard: {
-    smooth: 0.50,
-    lighten: 0.75,
+    smooth: 0.45,
+    lighten: 0.70,
   },
   polished: {
-    smooth: 0.85,
-    lighten: 0.95,
+    smooth: 0.76,
+    lighten: 0.92,
   },
 } as const;
 
@@ -53,8 +53,8 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
       wrinkleSpots: [
         { cx: 0.42, cy: 0.43, rx: 0.075, ry: 0.14 },
         { cx: 0.58, cy: 0.43, rx: 0.075, ry: 0.14 },
-        { cx: 0.42, cy: 0.52, rx: 0.085, ry: 0.07 },
-        { cx: 0.58, cy: 0.52, rx: 0.085, ry: 0.07 },
+        { cx: 0.38, cy: 0.52, rx: 0.06, ry: 0.07 },
+        { cx: 0.62, cy: 0.52, rx: 0.06, ry: 0.07 },
       ],
       lines: {
         leftNasolabial: [0.46, 0.36, 0.42, 0.40, 0.42, 0.46, 0.45, 0.50],
@@ -73,8 +73,8 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
     wrinkleSpots: [
       { cx: 0.41, cy: 0.62, rx: 0.095, ry: 0.17 },
       { cx: 0.59, cy: 0.62, rx: 0.095, ry: 0.17 },
-      { cx: 0.41, cy: 0.75, rx: 0.10, ry: 0.09 },
-      { cx: 0.59, cy: 0.75, rx: 0.10, ry: 0.09 },
+      { cx: 0.35, cy: 0.75, rx: 0.07, ry: 0.09 },
+      { cx: 0.65, cy: 0.75, rx: 0.07, ry: 0.09 },
     ],
     lines: {
       leftNasolabial: [0.43, 0.55, 0.40, 0.60, 0.39, 0.66, 0.43, 0.71],
