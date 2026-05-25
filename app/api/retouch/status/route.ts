@@ -16,16 +16,16 @@ const RETOUCH_OUTPUT_QUALITY = 92;
 
 const RETOUCH_STRENGTHS = {
   natural: {
-    smooth: 0.20,
-    lighten: 0.40,
+    smooth: 0.25,
+    lighten: 0.45,
   },
   standard: {
-    smooth: 0.40,
-    lighten: 0.65,
+    smooth: 0.50,
+    lighten: 0.75,
   },
   polished: {
-    smooth: 0.65,
-    lighten: 0.90,
+    smooth: 0.85,
+    lighten: 0.95,
   },
 } as const;
 
@@ -63,7 +63,7 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
         rightMouth: [0.56, 0.46, 0.60, 0.49, 0.58, 0.54, 0.54, 0.56],
       },
       noseBridge: { cx: 0.5, cy: 0.33, rx: 0.03, ry: 0.07 },
-      noseBase: { cx: 0.5, cy: 0.395, rx: 0.075, ry: 0.035 },
+      noseBase: { cx: 0.5, cy: 0.395, rx: 0.048, ry: 0.035 },
     };
   }
 
@@ -83,7 +83,7 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
       rightMouth: [0.57, 0.68, 0.60, 0.72, 0.58, 0.77, 0.54, 0.80],
     },
     noseBridge: { cx: 0.5, cy: 0.48, rx: 0.05, ry: 0.09 },
-    noseBase: { cx: 0.5, cy: 0.60, rx: 0.10, ry: 0.05 },
+    noseBase: { cx: 0.5, cy: 0.60, rx: 0.065, ry: 0.05 },
   };
 }
 
