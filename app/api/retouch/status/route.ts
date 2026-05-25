@@ -65,11 +65,11 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
         leftMouth: [0.44, 0.46, 0.40, 0.49, 0.42, 0.54, 0.46, 0.56],
         rightMouth: [0.56, 0.46, 0.60, 0.49, 0.58, 0.54, 0.54, 0.56],
       },
-      leftEyeExclude: { cx: 0.36, cy: 0.31, rx: 0.08, ry: 0.022 },
-      rightEyeExclude: { cx: 0.64, cy: 0.31, rx: 0.08, ry: 0.022 },
+      leftEyeExclude: { cx: 0.36, cy: 0.31, rx: 0.08, ry: 0.03 },
+      rightEyeExclude: { cx: 0.64, cy: 0.31, rx: 0.08, ry: 0.03 },
       noseBridge: { cx: 0.5, cy: 0.33, rx: 0.03, ry: 0.07 },
       noseBase: { cx: 0.5, cy: 0.395, rx: 0.048, ry: 0.035 },
-      mouthExclude: { cx: 0.5, cy: 0.435, rx: 0.08, ry: 0.022 },
+      mouthExclude: { cx: 0.5, cy: 0.435, rx: 0.08, ry: 0.03 },
     };
   }
 
@@ -88,11 +88,11 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
       leftMouth: [0.43, 0.68, 0.40, 0.72, 0.42, 0.77, 0.46, 0.80],
       rightMouth: [0.57, 0.68, 0.60, 0.72, 0.58, 0.77, 0.54, 0.80],
     },
-    leftEyeExclude: { cx: 0.34, cy: 0.44, rx: 0.10, ry: 0.025 },
-    rightEyeExclude: { cx: 0.66, cy: 0.44, rx: 0.10, ry: 0.025 },
+    leftEyeExclude: { cx: 0.34, cy: 0.44, rx: 0.10, ry: 0.033 },
+    rightEyeExclude: { cx: 0.66, cy: 0.44, rx: 0.10, ry: 0.033 },
     noseBridge: { cx: 0.5, cy: 0.48, rx: 0.05, ry: 0.09 },
     noseBase: { cx: 0.5, cy: 0.60, rx: 0.065, ry: 0.05 },
-    mouthExclude: { cx: 0.5, cy: 0.665, rx: 0.12, ry: 0.028 },
+    mouthExclude: { cx: 0.5, cy: 0.665, rx: 0.12, ry: 0.035 },
   };
 }
 
@@ -132,7 +132,7 @@ async function softenNoseAndMouthLines(
   const faceSkinMask = buildFaceSkinMask(width, height);
   
   // Feather the mask using sharp to ensure perfectly soft transitions and completely natural edges
-  const blurRadius = Math.max(20, Math.round(width * 0.03));
+  const blurRadius = Math.max(40, Math.round(width * 0.06));
   const featheredMask = await sharp(faceSkinMask, { failOn: 'none' })
     .blur(blurRadius)
     .png()
@@ -144,7 +144,7 @@ async function softenNoseAndMouthLines(
   const maskedSmoothedLines = await sharp(image, { failOn: 'none' })
     .median(3)
     .blur(3.2)
-    .modulate({ brightness: 1.03, saturation: 0.98 })
+    .modulate({ brightness: 1.01, saturation: 0.99 })
     .ensureAlpha(smoothOpacity)
     .composite([{ input: featheredMask, blend: 'dest-in' }])
     .png()
@@ -160,7 +160,7 @@ async function softenNoseAndMouthLines(
   const maskedLightenedLines = await sharp(smoothedImage, { failOn: 'none' })
     .median(3)
     .blur(2.2)
-    .modulate({ brightness: 1.20, saturation: 0.98 })
+    .modulate({ brightness: 1.07, saturation: 0.98 })
     .ensureAlpha(lightenOpacity)
     .composite([{ input: featheredMask, blend: 'dest-in' }])
     .png()
