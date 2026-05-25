@@ -39,6 +39,8 @@ type PortraitLayout = {
     leftMouth: [number, number, number, number, number, number, number, number];
     rightMouth: [number, number, number, number, number, number, number, number];
   };
+  leftEyeExclude: { cx: number; cy: number; rx: number; ry: number };
+  rightEyeExclude: { cx: number; cy: number; rx: number; ry: number };
   noseBridge: { cx: number; cy: number; rx: number; ry: number };
   noseBase: { cx: number; cy: number; rx: number; ry: number };
   mouthExclude: { cx: number; cy: number; rx: number; ry: number };
@@ -52,8 +54,8 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
       face: { cx: 0.5, cy: 0.32, rx: 0.17, ry: 0.18 },
       mouth: { y: 0.43, leftX: 0.43, rightX: 0.57, radiusX: 0.08, radiusY: 0.055 },
       wrinkleSpots: [
-        { cx: 0.42, cy: 0.43, rx: 0.075, ry: 0.14 },
-        { cx: 0.58, cy: 0.43, rx: 0.075, ry: 0.14 },
+        { cx: 0.42, cy: 0.44, rx: 0.07, ry: 0.06 },
+        { cx: 0.58, cy: 0.44, rx: 0.07, ry: 0.06 },
         { cx: 0.38, cy: 0.52, rx: 0.06, ry: 0.07 },
         { cx: 0.62, cy: 0.52, rx: 0.06, ry: 0.07 },
       ],
@@ -63,6 +65,8 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
         leftMouth: [0.44, 0.46, 0.40, 0.49, 0.42, 0.54, 0.46, 0.56],
         rightMouth: [0.56, 0.46, 0.60, 0.49, 0.58, 0.54, 0.54, 0.56],
       },
+      leftEyeExclude: { cx: 0.36, cy: 0.31, rx: 0.08, ry: 0.04 },
+      rightEyeExclude: { cx: 0.64, cy: 0.31, rx: 0.08, ry: 0.04 },
       noseBridge: { cx: 0.5, cy: 0.33, rx: 0.03, ry: 0.07 },
       noseBase: { cx: 0.5, cy: 0.395, rx: 0.048, ry: 0.035 },
       mouthExclude: { cx: 0.5, cy: 0.435, rx: 0.08, ry: 0.045 },
@@ -73,8 +77,8 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
     face: { cx: 0.5, cy: 0.45, rx: 0.21, ry: 0.25 },
     mouth: { y: 0.66, leftX: 0.38, rightX: 0.62, radiusX: 0.12, radiusY: 0.09 },
     wrinkleSpots: [
-      { cx: 0.41, cy: 0.62, rx: 0.095, ry: 0.17 },
-      { cx: 0.59, cy: 0.62, rx: 0.095, ry: 0.17 },
+      { cx: 0.41, cy: 0.62, rx: 0.08, ry: 0.08 },
+      { cx: 0.59, cy: 0.62, rx: 0.08, ry: 0.08 },
       { cx: 0.35, cy: 0.75, rx: 0.07, ry: 0.09 },
       { cx: 0.65, cy: 0.75, rx: 0.07, ry: 0.09 },
     ],
@@ -84,6 +88,8 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
       leftMouth: [0.43, 0.68, 0.40, 0.72, 0.42, 0.77, 0.46, 0.80],
       rightMouth: [0.57, 0.68, 0.60, 0.72, 0.58, 0.77, 0.54, 0.80],
     },
+    leftEyeExclude: { cx: 0.34, cy: 0.44, rx: 0.10, ry: 0.05 },
+    rightEyeExclude: { cx: 0.66, cy: 0.44, rx: 0.10, ry: 0.05 },
     noseBridge: { cx: 0.5, cy: 0.48, rx: 0.05, ry: 0.09 },
     noseBase: { cx: 0.5, cy: 0.60, rx: 0.065, ry: 0.05 },
     mouthExclude: { cx: 0.5, cy: 0.665, rx: 0.12, ry: 0.06 },
@@ -92,7 +98,7 @@ function getPortraitLayout(width: number, height: number): PortraitLayout {
 
 function buildExpressionLineMask(width: number, height: number): Buffer {
   const strokeWidth = Math.max(34, width * 0.075);
-  const { lines, wrinkleSpots, noseBridge, noseBase, mouthExclude } = getPortraitLayout(width, height);
+  const { lines, wrinkleSpots, noseBridge, noseBase, mouthExclude, leftEyeExclude, rightEyeExclude } = getPortraitLayout(width, height);
   const path = ([x1, y1, x2, y2, x3, y3, x4, y4]: PortraitLayout['lines']['leftNasolabial']) =>
     `M ${width * x1} ${height * y1} C ${width * x2} ${height * y2}, ${width * x3} ${height * y3}, ${width * x4} ${height * y4}`;
   const ellipses = wrinkleSpots
@@ -106,6 +112,9 @@ function buildExpressionLineMask(width: number, height: number): Buffer {
       <defs>
         <mask id="exclude-features-mask">
           <rect x="0" y="0" width="${width}" height="${height}" fill="white" />
+          <!-- Exclude left and right eyes (prevents eyebag smudge) -->
+          <ellipse cx="${width * leftEyeExclude.cx}" cy="${height * leftEyeExclude.cy}" rx="${width * leftEyeExclude.rx}" ry="${height * leftEyeExclude.ry}" fill="black" />
+          <ellipse cx="${width * rightEyeExclude.cx}" cy="${height * rightEyeExclude.cy}" rx="${width * rightEyeExclude.rx}" ry="${height * rightEyeExclude.ry}" fill="black" />
           <!-- Exclude nose bridge -->
           <ellipse cx="${width * noseBridge.cx}" cy="${height * noseBridge.cy}" rx="${width * noseBridge.rx}" ry="${height * noseBridge.ry}" fill="black" />
           <!-- Exclude nose base (nostrils and wings) -->
